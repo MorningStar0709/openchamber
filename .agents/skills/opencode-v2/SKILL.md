@@ -109,9 +109,7 @@ gap.
 - **A session whose directory was deleted** still reads, but location-scoped
   requests answer 404 `LocationNotFoundError`. `STATUS_BY_TAG` does not map it
   to 404 on purpose: `fetchPermission` reads 404 as "settled", which would let
-  auto-accept fail open. `POST /api/session/:id/move` works on such a session;
-  `PATCH /api/session/:id` (metadata, so Track / Done) does not, once the
-  location is no longer loaded.
+  auto-accept fail open. `POST /api/session/:id/move` works on such a session.
 - **A background shell or a subagent has no clean cancel.** `shell.remove`
   kills the process but hands the agent a `Shell.NotFoundError`; interrupting a
   subagent's child session (no job-cancel route) reports "Subagent cancelled".
