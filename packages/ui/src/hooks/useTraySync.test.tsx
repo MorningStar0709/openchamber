@@ -7,6 +7,7 @@ import { CHAT_DRAFT_PROJECT_ID } from '@/lib/chatDirectories';
 import { useTraySync } from './useTraySync';
 import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
 import { useNotificationStore } from '@/sync/notification-store';
 import {
@@ -292,6 +293,7 @@ describe('Tray sessions follow the configured projects', () => {
     await act(async () => root.unmount());
     resetGlobalBlockingRequests();
     useProjectsStore.setState({ projects: [] });
+    useSessionUIStore.setState({ availableWorktreesByProject: new Map() });
     await dom.happyDOM.close();
   });
 
@@ -315,6 +317,26 @@ describe('Tray sessions follow the configured projects', () => {
     await act(async () => root.render(<Harness />));
     await flush();
     expect(lastSnapshot()?.sessions?.map((entry) => entry.id).sort()).toEqual(['chat', 'space']);
+  });
+
+  test('keeps a session inside a configured project worktree', async () => {
+    // Managed worktrees live outside the project root, so only the worktree
+    // map can resolve this directory; a path under /project would pass on the
+    // project-prefix rule alone and pin nothing.
+    useSessionUIStore.setState({
+      availableWorktreesByProject: new Map([
+        ['/project', [{ path: '/opencode-worktrees/run-1', projectDirectory: '/project', branch: 'run-1', label: 'run-1' }]],
+      ]),
+    });
+    useGlobalSessionsStore.setState({
+      activeSessions: [
+        session('in-worktree', undefined, '/opencode-worktrees/run-1'),
+        session('elsewhere', undefined, '/tmp/eval-run'),
+      ],
+    });
+    await act(async () => root.render(<Harness />));
+    await flush();
+    expect(lastSnapshot()?.sessions?.map((entry) => entry.id)).toEqual(['in-worktree']);
   });
 
   test('still lists a pending approval from a session it hides', async () => {

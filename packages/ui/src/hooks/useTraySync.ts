@@ -367,6 +367,8 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
   // user can reach. Pending approvals stay listed below regardless.
   const isPlacedBySidebar = (session: Session): boolean => {
     const directory = resolveGlobalSessionDirectory(session);
+    // A managed chat keeps its identity when its directory no longer sits under
+    // the chats root, so the project id admits it too.
     if (isChatDirectoryPath(directory) || session.projectID === CHAT_DRAFT_PROJECT_ID) return true;
     if (isSpaceDirectory(directory)) return true;
     return resolveProjectForSessionDirectory(projects, worktreesByProject, directory) !== null;
