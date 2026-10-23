@@ -453,11 +453,18 @@ export const useTraySync = (): void => {
         scheduleFlush();
       }
     });
+    // The badge keeps only sessions with a sidebar row, so adding or removing a
+    // project or worktree can change the count without any session event.
+    // Subscribed before the tray-only branch so badge-only mode stays current.
+    const unsubscribeProjects = useProjectsStore.subscribe(() => scheduleFlush());
+    const unsubscribeWorktrees = useSessionUIStore.subscribe(() => scheduleFlush());
     const stopBadgeSync = () => {
       disposed = true;
       if (flushTimer !== null) window.clearTimeout(flushTimer);
       unsubscribeGlobal();
       unsubscribeUI();
+      unsubscribeProjects();
+      unsubscribeWorktrees();
     };
 
     if (!trayEnabled) {
@@ -510,10 +517,6 @@ export const useTraySync = (): void => {
     }
     rebindStores();
 
-    // Project labels and discovered worktrees feed the "project · branch"
-    // subtitle; refresh the tray when they change (deduped, so cheap).
-    const unsubscribeProjects = useProjectsStore.subscribe(() => scheduleFlush());
-    const unsubscribeWorktrees = useSessionUIStore.subscribe(() => scheduleFlush());
     const unsubscribeGit = useGitStore.subscribe(() => scheduleFlush());
     // Cross-project status map: fed live by the sync dispatcher from the global
     // event stream and seeded from the host by the root global-sessions poll.
@@ -544,8 +547,6 @@ export const useTraySync = (): void => {
     return () => {
       stopBadgeSync();
       window.clearInterval(interval);
-      unsubscribeProjects();
-      unsubscribeWorktrees();
       unsubscribeGit();
       unsubscribeGlobalStatus();
       unsubscribeGlobalRequests();

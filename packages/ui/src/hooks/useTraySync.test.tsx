@@ -138,6 +138,24 @@ describe('Dock badge with the macOS menu bar disabled', () => {
     expect(counts).toEqual([25]);
   });
 
+  test('recounts when a project appears or disappears without a session event', async () => {
+    // With no project configured, the unread session has no row and the badge
+    // is clear. Adding the project makes it reachable; removing it again must
+    // clear the number, with no session record changing in between.
+    useProjectsStore.setState({ projects: [] });
+    finishTurn('root');
+    await act(async () => root.render(<Harness />));
+    expect(counts).toEqual([0]);
+    useProjectsStore.setState({ projects: [{ id: 'project', path: '/project' }] });
+    await flush();
+    expect(counts).toEqual([0, 1]);
+    useProjectsStore.setState({ projects: [] });
+    await flush();
+    expect(counts).toEqual([0, 1, 0]);
+    expect(intervalCount).toBe(0);
+    expect(listenerCount).toBe(0);
+  });
+
   test('starts with a cleared badge when both controls are disabled', async () => {
     finishTurn('root');
     useUIStore.setState({ dockBadgeEnabled: false });
