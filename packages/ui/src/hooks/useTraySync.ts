@@ -314,11 +314,33 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
     lineage.descendantsOf(rootId, 'active').map((session) => session.id)
   );
 
-  // Count the full root list, independently of the tray's visibility and limit.
-  const ui = useUIStore.getState();
+  // A session the sidebar cannot place has no row anywhere: an eval run in
+  // /tmp, a deleted scratch folder. The command palette can still find it, but
+  // the lists that show unread state never do, so counting it on the dock would
+  // leave a number nothing could clear. The tray and the badge share this rule
+  // (`sessionHasSidebarRow`).
+  const projects = useProjectsStore.getState().projects;
+  const worktreesByProject = useSessionUIStore.getState().availableWorktreesByProject;
+  const pinnedIds = useSessionPinnedStore.getState().ids;
+  const isPlacedBySidebar = (session: Session): boolean => {
+    const directory = resolveGlobalSessionDirectory(session);
+    // A managed chat keeps its identity when its directory no longer sits under
+    // the chats root, so the project id admits it too.
+    if (isChatDirectoryPath(directory) || session.projectID === CHAT_DRAFT_PROJECT_ID) return true;
+    if (isSpaceDirectory(directory)) return true;
+    return resolveProjectForSessionDirectory(projects, worktreesByProject, directory) !== null;
+  };
+  const hasSidebarRow = (session: Session): boolean => sessionHasSidebarRow(session, {
+    isPlaced: isPlacedBySidebar(session),
+    isPinned: isSessionPinned(pinnedIds, session.directory, session.id),
+  });
+
   // Only top-level sessions are ever unread (`isSessionUnread`); a subtask
   // reports to its parent.
-  const dockBadgeCount = ui.dockBadgeEnabled ? allSessions.filter(isSessionUnread).length : 0;
+  const ui = useUIStore.getState();
+  const dockBadgeCount = ui.dockBadgeEnabled
+    ? allSessions.filter((session) => isSessionUnread(session) && hasSidebarRow(session)).length
+    : 0;
   if (!includeTray) {
     return { sessions: [], approvals: [], instanceName, usage: { mode: 'usage', groups: [] }, dockBadgeCount };
   }
@@ -347,29 +369,9 @@ const buildSnapshot = (instanceName: string, includeTray: boolean): TraySnapshot
     return 'idle';
   };
 
-  const projects = useProjectsStore.getState().projects;
-  const worktreesByProject = useSessionUIStore.getState().availableWorktreesByProject;
-
   // The tray is a short recent-work list, not a dump of everything the store
-  // keeps: a session belongs here when it has a sidebar row
-  // (`sessionHasSidebarRow`). Sessions from unconfigured directories (an eval
-  // run in /tmp, a deleted scratch folder) have none, cannot be opened or
-  // removed from there, and would otherwise take the tray's limited slots.
-  // Pending approvals stay listed below regardless.
-  const pinnedIds = useSessionPinnedStore.getState().ids;
-  const isPlacedBySidebar = (session: Session): boolean => {
-    const directory = resolveGlobalSessionDirectory(session);
-    // A managed chat keeps its identity when its directory no longer sits under
-    // the chats root, so the project id admits it too.
-    if (isChatDirectoryPath(directory) || session.projectID === CHAT_DRAFT_PROJECT_ID) return true;
-    if (isSpaceDirectory(directory)) return true;
-    return resolveProjectForSessionDirectory(projects, worktreesByProject, directory) !== null;
-  };
-  const hasSidebarRow = (session: Session): boolean => sessionHasSidebarRow(session, {
-    isPlaced: isPlacedBySidebar(session),
-    isPinned: isSessionPinned(pinnedIds, session.directory, session.id),
-  });
-
+  // keeps: it lists only sessions with a sidebar row, the same rule the badge
+  // uses. Pending approvals stay listed below regardless.
   const sessions: TraySession[] = allSessions
     .filter((s) => s?.id && !s.parentID) // root rows; sub-session work rolls up
     .filter(hasSidebarRow)
