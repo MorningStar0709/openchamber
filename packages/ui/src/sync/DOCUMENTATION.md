@@ -290,11 +290,47 @@ the same 150-session persistence bound as the existing selections. Old payloads
 without effort entries remain valid; malformed effort entries grant no authority.
 Session deletion clears these entries. A saved effort choice precedes older
 message history so a reload cannot undo an unsent picker change, unless the
-session record has since switched to another model and effort. The store also
-persists, per session, the session-record agent and model the composer last
-followed; a different record value is a newer switch and replaces the pick
-(Auto excepted), while an unchanged one keeps an unsent pick
-(`packages/ui/src/stores/DOCUMENTATION.md`).
+session record has since switched to another model and effort.
+
+An agent pick is written to the session record at pick time rather than on the
+next send: `commitAgentPick` (`sync/commit-agent-pick.ts`) calls
+`pushAgentSwitch`, which marks the pick in flight and then calls
+`opencodeClient.switchSessionAgent` with the session's own directory. Every entry
+that can pick an agent goes through it: the picker menu, the composer's cycle
+key, and the global cycle shortcut. The store also persists, per session, the
+session-record agent and model the composer last followed, and it still treats a
+different record value as a newer switch that replaces the pick (Auto excepted).
+A record echo that arrives while this client's own pick is in flight is not such a
+switch: it still names the previous agent, so `followSessionAgent` holds the
+composer until the record names the picked agent, then clears the marker. The
+marker carries the time it started and `PENDING_SWITCH_TTL_MS` (10 s) bounds it,
+so an echo that never lands releases the composer instead of holding it for the
+rest of the session. A refused switch drops the marker at once and reports
+through the catalog (`chat.agent.switchFailed`). The composer side of this rule is
+in `packages/ui/src/stores/DOCUMENTATION.md`.
+
+### Why the pick is written at pick time and its marker is bounded by time
+
+The alternative is to leave the record alone until the next send, where
+`resolveSendSelection` compares the desired agent with the session record and
+switches when the two differ. That comparison is only as fresh as this client's
+record mirror, and the mirror is written by two effects that follow the record
+(`ModelControls`' bring-back and its history restore). A pick held only in
+`selection-store.ts` was overwritten by those effects before the next send could
+compare it, so the difference resolved to none and nothing was sent. Writing at
+pick time makes the user's act the authority and leaves the mirror nothing to
+correct.
+
+The marker exists because the record echoes back a moment after the write, still
+naming the previous agent. Without it, the follow rule reads that echo as somebody
+else switching the session and undoes the pick.
+
+Clearing the marker only when the echo resolves is tighter, and it was the first
+shape tried. It loses when the echo never arrives, for instance when the runtime
+reconnects: the marker then holds the composer for the rest of the session's life
+and swallows the next genuine switch from elsewhere. Ten seconds is four orders of
+magnitude longer than a local round trip and shorter than a person takes to switch
+sessions, which bounds both a false hold and a false release.
 Agent and model switch events stamp the session's `time.updated`, as OpenCode's
 own record does.
 

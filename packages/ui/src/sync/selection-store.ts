@@ -38,15 +38,12 @@ type SelectionState = {
   /** The model (`provider/model#variant`) the session record held when the composer last reconciled with it. */
   sessionFollowedModels: Map<string, string>
   /**
-   * The agent a pick is being written to the session record with, per session.
-   * The record echoes back a moment later; until it does it still names the
-   * previous agent, which must not be read as somebody else switching the
-   * session. Not persisted: a pick in flight does not outlive a reload.
-   */
-  /**
-   * The pick in flight, and when it started. The time is what keeps a lost
+   * The pick in flight, and when it started. The record echoes back a moment
+   * later; until it does it still names the previous agent, which must not be
+   * read as somebody else switching the session. The time is what keeps a lost
    * echo from silencing the session for good: after `PENDING_SWITCH_TTL_MS`
-   * the marker stops holding the composer back and the record wins again.
+   * the marker stops holding the composer back and the record wins again. Not
+   * persisted: a pick in flight does not outlive a reload.
    */
   pendingAgentSwitches: Map<string, { agent: string; at: number }>
   sessionAgentModelSelections: Map<string, Map<string, ModelSelection>>

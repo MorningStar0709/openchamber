@@ -406,15 +406,21 @@ agent together with the model `setAgent` resolved for it. Only
 clear the pick. An effort picked in a draft is a choice of its own: those same
 paths leave the draft alone while `currentVariantSelection.override` is set.
 
-An open session's agent goes both ways. A pick applies to the session when the
-next message is sent (`switchAgent` before the prompt). Every switch, whoever
-made it (this composer, another client, a plugin), lands on OpenCode's session
-record through `session.agent.selected`, and `ModelControls` follows the
-record through `useSelectionStore.followSessionAgent`. That store remembers,
-per session and persisted, the record agent the composer last followed: a
-record agent it has not followed yet is a newer switch and replaces the pick,
-an unchanged record leaves a pick made after it in place across session
-switches and reloads. Following moves the agent only (`setAgent(name, {
+An open session's agent goes both ways. A pick is written to the session record
+at pick time, through `commitAgentPick` → `pushAgentSwitch` →
+`opencodeClient.switchSessionAgent`, so the record never waits for the next
+message. Every entry that can pick an agent takes that path: this composer's
+menu, its cycle key, and the global cycle shortcut. Every switch, whoever made it
+(this composer, another client, a plugin), lands on OpenCode's session record
+through `session.agent.selected`, and `ModelControls` follows the record through
+`useSelectionStore.followSessionAgent`. That store remembers, per session and
+persisted, the record agent the composer last followed: a record agent it has not
+followed yet is a newer switch and replaces the pick, an unchanged record leaves a
+pick made after it in place across session switches and reloads. A record echo
+that arrives while this client's own pick is in flight is the exception: it still
+names the previous agent, so the marker holds the follow until the record names the
+picked agent, and releases it after `PENDING_SWITCH_TTL_MS` (10 s) if the echo
+never lands. Following moves the agent only (`setAgent(name, {
 keepModel: true })`): the session keeps running on its own model, so neither
 the agent's pinned nor its remembered model is applied, and Auto stays.
 
