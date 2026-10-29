@@ -37,6 +37,13 @@ type SelectionState = {
   sessionFollowedAgents: Map<string, string>
   /** The model (`provider/model#variant`) the session record held when the composer last reconciled with it. */
   sessionFollowedModels: Map<string, string>
+  /**
+   * The agent a pick is being written to the session record with, per session.
+   * The record echoes back a moment later; until it does it still names the
+   * previous agent, which must not be read as somebody else switching the
+   * session. Not persisted: a pick in flight does not outlive a reload.
+   */
+  pendingAgentSwitches: Map<string, string>
   sessionAgentModelSelections: Map<string, Map<string, ModelSelection>>
   agentModelVariantSelections: VariantSelections
   lastUsedProvider: LastUsedProvider | null
@@ -45,6 +52,18 @@ type SelectionState = {
   getSessionModelSelection: (sessionId: string) => { providerId: string; modelId: string } | null
   saveSessionAgentSelection: (sessionId: string, agentName: string) => void
   getSessionAgentSelection: (sessionId: string) => string | null
+  /**
+   * Selects `agentName` for the session and marks the pick as travelling to
+   * the session record. Call before the switch request, so a record echo that
+   * arrives mid-flight cannot undo the pick.
+   */
+  beginAgentSwitch: (sessionId: string, agentName: string) => void
+  /**
+   * Drops the marker for a switch that never landed (the request failed), so
+   * the record wins again: the next reconcile puts the composer back on the
+   * agent the session actually runs on.
+   */
+  abandonAgentSwitch: (sessionId: string) => void
   /**
    * Reconciles the composer with the agent on OpenCode's session record.
    * Returns true, and selects `agent` for the session, only when the record
@@ -85,6 +104,7 @@ export const useSelectionStore = create<SelectionState>()(
       sessionAgentSelections: new Map(),
       sessionFollowedAgents: new Map(),
       sessionFollowedModels: new Map(),
+      pendingAgentSwitches: new Map(),
       sessionAgentModelSelections: new Map(),
       agentModelVariantSelections: new Map(),
       lastUsedProvider: null,
@@ -111,6 +131,23 @@ export const useSelectionStore = create<SelectionState>()(
       getSessionAgentSelection: (sessionId) => get().sessionAgentSelections.get(sessionId) ?? null,
 
       followSessionAgent: (sessionId, agent) => {
+        const pending = get().pendingAgentSwitches.get(sessionId)
+        if (pending !== undefined) {
+          // A pick is on its way to the record. An echo naming the same agent
+          // means it landed, so the marker goes and there is nothing to
+          // follow; any other agent is the record lagging behind the pick,
+          // which must not overwrite it.
+          if (pending !== agent) return false
+          set((s) => {
+            const pendingSwitches = new Map(s.pendingAgentSwitches)
+            pendingSwitches.delete(sessionId)
+            const followed = new Map(s.sessionFollowedAgents)
+            followed.delete(sessionId)
+            followed.set(sessionId, agent)
+            return { pendingAgentSwitches: pendingSwitches, sessionFollowedAgents: followed }
+          })
+          return false
+        }
         if (get().sessionFollowedAgents.get(sessionId) === agent) return false
         set((s) => {
           const followed = new Map(s.sessionFollowedAgents)
@@ -123,6 +160,23 @@ export const useSelectionStore = create<SelectionState>()(
         })
         return true
       },
+
+      beginAgentSwitch: (sessionId, agentName) => {
+        get().saveSessionAgentSelection(sessionId, agentName)
+        set((s) => {
+          const pendingSwitches = new Map(s.pendingAgentSwitches)
+          pendingSwitches.delete(sessionId)
+          pendingSwitches.set(sessionId, agentName)
+          return { pendingAgentSwitches: pendingSwitches }
+        })
+      },
+
+      abandonAgentSwitch: (sessionId) => set((s) => {
+        if (!s.pendingAgentSwitches.has(sessionId)) return s
+        const pendingSwitches = new Map(s.pendingAgentSwitches)
+        pendingSwitches.delete(sessionId)
+        return { pendingAgentSwitches: pendingSwitches }
+      }),
 
       isSessionModelSwitched: (sessionId, model) => {
         const followed = get().sessionFollowedModels.get(sessionId)

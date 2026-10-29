@@ -40,6 +40,9 @@ import { useContextStore } from '@/stores/contextStore';
 import { useConfigStore, isStaleAutoSelection, selectKnownAgent, selectKnownCatalogModel } from '@/stores/useConfigStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
+import { pushAgentSwitch } from '@/sync/agent-switch';
+import { opencodeClient } from '@/lib/opencode/client';
+import { toast } from 'sonner';
 import { useSessionMessagesSelector, useSessionRenderable, useSessionSelector } from '@/sync/sync-context';
 import type { State } from '@/sync/types';
 import { useSync } from '@/sync/use-sync';
@@ -1500,12 +1503,32 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         }
     }, [commitVariantSelectionForModel, currentModelId, currentProviderId]);
 
+    /**
+     * A pick is a switch on the session record, not a local setting: the send
+     * path only travels a difference it can see, and between a pick and the
+     * next send it can still see the old agent. Writing it here, at the moment
+     * of the click, is what makes the pick happen at all.
+     */
+    const commitAgentPick = React.useCallback((sessionId: string, agentName: string) => {
+        const directory = getDirectoryForSession(sessionId) ?? undefined;
+        void pushAgentSwitch({
+            switchSessionAgent: (id, agent, dir) => opencodeClient.switchSessionAgent(id, agent, dir),
+            begin: (id, agent) => useSelectionStore.getState().beginAgentSwitch(id, agent),
+            abandon: (id) => useSelectionStore.getState().abandonAgentSwitch(id),
+        }, sessionId, agentName, directory).catch((error: unknown) => {
+            console.error('[ModelControls] Agent switch failed:', error);
+            toast.error(`切换 ${agentName} 失败`, {
+                description: error instanceof Error ? error.message : String(error),
+            });
+        });
+    }, [getDirectoryForSession]);
+
     const handleAgentChange = React.useCallback((agentName: string, options?: { closeModelSelector?: boolean }) => {
         if (selection) {
             if (!agentSelectable || !controlledSessionId) return;
             // The pick belongs to the controlled session only; the app-wide
             // agent stays the main chat's.
-            saveSessionAgentSelection(controlledSessionId, agentName);
+            commitAgentPick(controlledSessionId, agentName);
             addRecentAgent(agentName);
             if (options?.closeModelSelector ?? true) {
                 setAgentMenuOpen(false);
@@ -1520,7 +1543,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             }
 
             if (currentSessionId) {
-                saveSessionAgentSelection(currentSessionId, agentName);
+                commitAgentPick(currentSessionId, agentName);
             }
             if (isCompact) {
                 closeMobilePanel();
@@ -1532,10 +1555,10 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         addRecentAgent,
         agentSelectable,
         closeMobilePanel,
+        commitAgentPick,
         controlledSessionId,
         currentSessionId,
         isCompact,
-        saveSessionAgentSelection,
         setAgent,
         setAgentMenuOpen,
         selection,
