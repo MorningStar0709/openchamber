@@ -40,9 +40,7 @@ import { useContextStore } from '@/stores/contextStore';
 import { useConfigStore, isStaleAutoSelection, selectKnownAgent, selectKnownCatalogModel } from '@/stores/useConfigStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
-import { pushAgentSwitch } from '@/sync/agent-switch';
-import { opencodeClient } from '@/lib/opencode/client';
-import { toast } from 'sonner';
+import { commitAgentPick as commitSessionAgentPick } from '@/sync/commit-agent-pick';
 import { useSessionMessagesSelector, useSessionRenderable, useSessionSelector } from '@/sync/sync-context';
 import type { State } from '@/sync/types';
 import { useSync } from '@/sync/use-sync';
@@ -1025,6 +1023,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         setAgent(sessionRecordAgent, { keepModel: true });
     }, [contextHydrated, currentSessionId, sessionRecordAgent, setAgent]);
 
+
     React.useEffect(() => {
         if (!currentSessionId) {
             latestLoadedUserChoiceRestoreRef.current = null;
@@ -1510,18 +1509,30 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
      * of the click, is what makes the pick happen at all.
      */
     const commitAgentPick = React.useCallback((sessionId: string, agentName: string) => {
-        const directory = getDirectoryForSession(sessionId) ?? undefined;
-        void pushAgentSwitch({
-            switchSessionAgent: (id, agent, dir) => opencodeClient.switchSessionAgent(id, agent, dir),
-            begin: (id, agent) => useSelectionStore.getState().beginAgentSwitch(id, agent),
-            abandon: (id) => useSelectionStore.getState().abandonAgentSwitch(id),
-        }, sessionId, agentName, directory).catch((error: unknown) => {
-            console.error('[ModelControls] Agent switch failed:', error);
-            toast.error(`切换 ${agentName} 失败`, {
-                description: error instanceof Error ? error.message : String(error),
-            });
-        });
+        commitSessionAgentPick(sessionId, agentName, getDirectoryForSession(sessionId) ?? undefined);
     }, [getDirectoryForSession]);
+
+    // A pick can also arrive without going through the agent menu: the cycle
+    // key, a restored choice, anything else that sets the name. Whatever set
+    // it, a name that differs from the record the composer has already
+    // reconciled with is a pick that never reached the session, so it is
+    // written here. The ref keeps one attempt per choice from becoming a
+    // retry loop.
+    const lastPushedAgentRef = React.useRef<string | null>(null);
+    React.useEffect(() => {
+        if (!currentSessionId || !contextHydrated || !sessionRecordAgent) return;
+        // A controlled column's agent belongs to its own session only.
+        if (selection) return;
+        if (!currentAgentName || currentAgentName === sessionRecordAgent) return;
+        // Only once the composer has seen this version of the record: before
+        // that the follow above owns the moment, and the name here may still
+        // be a leftover of the previous session.
+        if (useSelectionStore.getState().sessionFollowedAgents.get(currentSessionId) !== sessionRecordAgent) return;
+        const choice = `${currentSessionId}:${currentAgentName}`;
+        if (lastPushedAgentRef.current === choice) return;
+        lastPushedAgentRef.current = choice;
+        commitAgentPick(currentSessionId, currentAgentName);
+    }, [commitAgentPick, contextHydrated, currentAgentName, currentSessionId, selection, sessionRecordAgent]);
 
     const handleAgentChange = React.useCallback((agentName: string, options?: { closeModelSelector?: boolean }) => {
         if (selection) {
