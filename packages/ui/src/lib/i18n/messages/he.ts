@@ -3910,4 +3910,5 @@ export const dict = {
   'notifications.question.bodyFallback': 'הסוכן ממתין לתשובתך',
   'notifications.permission.bodyFallback': 'הסוכן ממתין לאישורך',
   'notifications.permission.title': 'נדרשת הרשאה',
+  'chat.agent.switchFailed': 'המעבר אל {agent} נכשל',
 } as const;

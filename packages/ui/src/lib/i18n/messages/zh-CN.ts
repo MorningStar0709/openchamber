@@ -3886,4 +3886,5 @@ export const dict: Record<I18nKey, string> = {
   'notifications.question.bodyFallback': '智能体正在等待你的回复',
   'notifications.permission.bodyFallback': '智能体正在等待你的批准',
   'notifications.permission.title': '需要权限',
+  'chat.agent.switchFailed': '切换到 {agent} 失败',
 };

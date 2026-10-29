@@ -9,6 +9,7 @@
 
 import { toast } from 'sonner';
 import { opencodeClient } from '@/lib/opencode/client';
+import { formatMessage, useI18nStore } from '@/lib/i18n/store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { pushAgentSwitch } from '@/sync/agent-switch';
 
@@ -25,7 +26,7 @@ export function commitAgentPick(sessionId: string, agent: string, directory?: st
         abandon: (id) => useSelectionStore.getState().abandonAgentSwitch(id),
     }, sessionId, agent, directory).catch((error: unknown) => {
         console.error('[agent-pick] Agent switch failed:', error);
-        toast.error(`切换 ${agent} 失败`, {
+        toast.error(formatMessage(useI18nStore.getState().dictionary, 'chat.agent.switchFailed', { agent }), {
             description: error instanceof Error ? error.message : String(error),
         });
     });

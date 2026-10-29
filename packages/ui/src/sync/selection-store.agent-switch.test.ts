@@ -51,6 +51,20 @@ describe('agent pick in flight', () => {
         expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('plan');
     });
 
+    test('a pick whose echo never lands stops holding the composer back', () => {
+        useSelectionStore.getState().beginAgentSwitch(SESSION, 'build');
+        const realNow = Date.now;
+        Date.now = () => realNow() + 11_000;
+        try {
+            // The record won again, so a real switch elsewhere is followed
+            // instead of being swallowed for the rest of the session.
+            expect(useSelectionStore.getState().followSessionAgent(SESSION, 'plan')).toBe(true);
+            expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('plan');
+        } finally {
+            Date.now = realNow;
+        }
+    });
+
     test('a marker for another session leaves this one alone', () => {
         useSelectionStore.getState().beginAgentSwitch('ses_other', 'build');
 

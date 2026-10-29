@@ -3910,4 +3910,5 @@ export const dict = {
   'notifications.question.bodyFallback': 'الوكيل بانتظار ردك',
   'notifications.permission.bodyFallback': 'الوكيل بانتظار موافقتك',
   'notifications.permission.title': 'مطلوب إذن',
+  'chat.agent.switchFailed': 'تعذّر التبديل إلى {agent}',
 } as const;

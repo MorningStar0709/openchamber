@@ -3886,4 +3886,5 @@ export const dict: Record<I18nKey, string> = {
   'notifications.question.bodyFallback': 'El agente espera tu respuesta',
   'notifications.permission.bodyFallback': 'El agente espera tu aprobación',
   'notifications.permission.title': 'Permiso necesario',
+  'chat.agent.switchFailed': 'No se pudo cambiar a {agent}',
 };

@@ -3884,4 +3884,5 @@ export const dict = {
   'notifications.question.bodyFallback': 'L\'agent attend votre réponse',
   'notifications.permission.bodyFallback': 'L\'agent attend votre autorisation',
   'notifications.permission.title': 'Autorisation requise',
+  'chat.agent.switchFailed': 'Impossible de passer à {agent}',
 } as const;

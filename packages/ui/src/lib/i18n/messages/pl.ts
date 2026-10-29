@@ -3890,4 +3890,5 @@ export const dict: Record<I18nKey, string> = {
   'notifications.question.bodyFallback': 'Agent czeka na Twoją odpowiedź',
   'notifications.permission.bodyFallback': 'Agent czeka na Twoją zgodę',
   'notifications.permission.title': 'Wymagane uprawnienie',
+  'chat.agent.switchFailed': 'Nie udało się przełączyć na {agent}',
 } as const;

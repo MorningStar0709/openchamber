@@ -3885,6 +3885,7 @@ export const dict = {
   'notifications.question.bodyFallback': 'Agent is waiting for your response',
   'notifications.permission.bodyFallback': 'Agent is waiting for your approval',
   'notifications.permission.title': 'Permission required',
+  'chat.agent.switchFailed': 'Failed to switch to {agent}',
 } as const;
 
 export type I18nKey = keyof typeof dict;

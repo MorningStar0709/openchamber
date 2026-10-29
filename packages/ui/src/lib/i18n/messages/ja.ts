@@ -3885,4 +3885,5 @@ export const dict: Record<I18nKey, string> = {
   'notifications.question.bodyFallback': 'エージェントが回答を待っています',
   'notifications.permission.bodyFallback': 'エージェントが承認を待っています',
   'notifications.permission.title': '権限が必要です',
+  'chat.agent.switchFailed': '{agent} に切り替えられませんでした',
 };

@@ -5,6 +5,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { activateAdjacentSessionTab, activateSessionTabByIndex, closeSessionTabAndActivateNeighbour } from '@/lib/sessionTabs';
 import { navigateSessionHistory } from '@/lib/sessionNavigationHistory';
 import { useSelectionStore } from '@/sync/selection-store';
+import { commitAgentPick } from '@/sync/commit-agent-pick';
 import * as sessionActions from '@/sync/session-actions';
 import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUIStore';
 import { shownContextModes, zoneOfMode } from '@/lib/workspace/zones';
@@ -278,7 +279,9 @@ export const useKeyboardShortcuts = () => {
       state.addRecentAgent(next);
       const sessionId = useSessionUIStore.getState().currentSessionId;
       if (sessionId) {
-        useSelectionStore.getState().saveSessionAgentSelection(sessionId, next);
+        // The same pick as the agent menu's: it goes to the record now, in
+        // the session's own directory, not on the next send.
+        commitAgentPick(sessionId, next, useSessionUIStore.getState().getDirectoryForSession(sessionId) ?? undefined);
       }
     },
     toggle_terminal: () => {

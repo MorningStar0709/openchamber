@@ -43,7 +43,12 @@ type SelectionState = {
    * previous agent, which must not be read as somebody else switching the
    * session. Not persisted: a pick in flight does not outlive a reload.
    */
-  pendingAgentSwitches: Map<string, string>
+  /**
+   * The pick in flight, and when it started. The time is what keeps a lost
+   * echo from silencing the session for good: after `PENDING_SWITCH_TTL_MS`
+   * the marker stops holding the composer back and the record wins again.
+   */
+  pendingAgentSwitches: Map<string, { agent: string; at: number }>
   sessionAgentModelSelections: Map<string, Map<string, ModelSelection>>
   agentModelVariantSelections: VariantSelections
   lastUsedProvider: LastUsedProvider | null
@@ -95,6 +100,10 @@ type SelectionState = {
 
 // Maximum number of sessions to persist to local storage to prevent unbounded growth
 const MAX_PERSISTED_SESSIONS = 150
+// How long a pick may hold the composer back while the record catches up. Long
+// enough for a round trip and the echo after it, short enough that a lost echo
+// does not leave the session on an agent nobody chose.
+const PENDING_SWITCH_TTL_MS = 10_000
 const variantSessionKey = (sessionId: string) => JSON.stringify([getRuntimeKey(), sessionId])
 
 export const useSelectionStore = create<SelectionState>()(
@@ -131,8 +140,18 @@ export const useSelectionStore = create<SelectionState>()(
       getSessionAgentSelection: (sessionId) => get().sessionAgentSelections.get(sessionId) ?? null,
 
       followSessionAgent: (sessionId, agent) => {
-        const pending = get().pendingAgentSwitches.get(sessionId)
-        if (pending !== undefined) {
+        const inFlight = get().pendingAgentSwitches.get(sessionId)
+        if (inFlight !== undefined && Date.now() - inFlight.at > PENDING_SWITCH_TTL_MS) {
+          // The record never echoed the pick — a dropped subscription, a
+          // switch away before it landed. Holding the composer back any
+          // longer would swallow real switches, so the marker goes.
+          set((s) => {
+            const stale = new Map(s.pendingAgentSwitches)
+            stale.delete(sessionId)
+            return { pendingAgentSwitches: stale }
+          })
+        } else if (inFlight !== undefined) {
+          const pending = inFlight.agent
           // A pick is on its way to the record. An echo naming the same agent
           // means it landed, so the marker goes and there is nothing to
           // follow; any other agent is the record lagging behind the pick,
@@ -166,7 +185,7 @@ export const useSelectionStore = create<SelectionState>()(
         set((s) => {
           const pendingSwitches = new Map(s.pendingAgentSwitches)
           pendingSwitches.delete(sessionId)
-          pendingSwitches.set(sessionId, agentName)
+          pendingSwitches.set(sessionId, { agent: agentName, at: Date.now() })
           return { pendingAgentSwitches: pendingSwitches }
         })
       },

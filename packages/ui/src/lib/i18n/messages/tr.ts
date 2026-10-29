@@ -3883,4 +3883,5 @@ export const dict = {
   'notifications.question.bodyFallback': 'Ajan yanıtınızı bekliyor',
   'notifications.permission.bodyFallback': 'Ajan onayınızı bekliyor',
   'notifications.permission.title': 'İzin gerekiyor',
+  'chat.agent.switchFailed': '{agent} ajanına geçilemedi',
 };

@@ -3885,4 +3885,5 @@ export const dict = {
   'notifications.question.bodyFallback': 'De agent wacht op je antwoord',
   'notifications.permission.bodyFallback': 'De agent wacht op je goedkeuring',
   'notifications.permission.title': 'Toestemming vereist',
+  'chat.agent.switchFailed': 'Schakelen naar {agent} is mislukt',
 } as const;

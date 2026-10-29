@@ -1512,28 +1512,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         commitSessionAgentPick(sessionId, agentName, getDirectoryForSession(sessionId) ?? undefined);
     }, [getDirectoryForSession]);
 
-    // A pick can also arrive without going through the agent menu: the cycle
-    // key, a restored choice, anything else that sets the name. Whatever set
-    // it, a name that differs from the record the composer has already
-    // reconciled with is a pick that never reached the session, so it is
-    // written here. The ref keeps one attempt per choice from becoming a
-    // retry loop.
-    const lastPushedAgentRef = React.useRef<string | null>(null);
-    React.useEffect(() => {
-        if (!currentSessionId || !contextHydrated || !sessionRecordAgent) return;
-        // A controlled column's agent belongs to its own session only.
-        if (selection) return;
-        if (!currentAgentName || currentAgentName === sessionRecordAgent) return;
-        // Only once the composer has seen this version of the record: before
-        // that the follow above owns the moment, and the name here may still
-        // be a leftover of the previous session.
-        if (useSelectionStore.getState().sessionFollowedAgents.get(currentSessionId) !== sessionRecordAgent) return;
-        const choice = `${currentSessionId}:${currentAgentName}`;
-        if (lastPushedAgentRef.current === choice) return;
-        lastPushedAgentRef.current = choice;
-        commitAgentPick(currentSessionId, currentAgentName);
-    }, [commitAgentPick, contextHydrated, currentAgentName, currentSessionId, selection, sessionRecordAgent]);
-
     const handleAgentChange = React.useCallback((agentName: string, options?: { closeModelSelector?: boolean }) => {
         if (selection) {
             if (!agentSelectable || !controlledSessionId) return;
