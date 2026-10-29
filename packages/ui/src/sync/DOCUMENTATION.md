@@ -331,6 +331,7 @@ reconnects: the marker then holds the composer for the rest of the session's lif
 and swallows the next genuine switch from elsewhere. Ten seconds is four orders of
 magnitude longer than a local round trip and shorter than a person takes to switch
 sessions, which bounds both a false hold and a false release.
+
 Agent and model switch events stamp the session's `time.updated`, as OpenCode's
 own record does.
 
