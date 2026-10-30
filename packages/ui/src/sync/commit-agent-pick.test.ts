@@ -178,10 +178,9 @@ describe('a refusal with no agent yet known to be running', () => {
         expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('plan');
     });
 
-    test('never takes the refused agent back from the picker that reports it', async () => {
+    test('goes back to what the picker showed even when it re-picked the same agent', async () => {
         // setAgent writes the pick into the selection map before it is
-        // committed, so a picker can only report the refused agent as its
-        // previous one. That is not a fallback.
+        // committed, so the map cannot say what was on screen; the picker can.
         useSelectionStore.setState({
             sessionAgentSelections: new Map([[SESSION, 'build']]),
             sessionFollowedAgents: new Map(),
@@ -192,7 +191,7 @@ describe('a refusal with no agent yet known to be running', () => {
 
         await commitAgentPick(SESSION, 'build', DIRECTORY, { previousAgent: 'build' });
 
-        expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBeNull();
+        expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('build');
     });
 });
 
