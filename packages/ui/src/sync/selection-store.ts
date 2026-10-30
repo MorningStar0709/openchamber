@@ -67,6 +67,16 @@ type SelectionState = {
    */
   abandonAgentSwitch: (sessionId: string) => void
   /**
+   * Undoes a pick the record refused. Drops its marker and selects the agent
+   * the session last reconciled to, so the composer shows the agent the
+   * session actually runs on rather than the one it never took.
+   *
+   * Returns that agent, or null when there is nothing to go back to: no record
+   * value has been followed yet, or a newer pick has taken the marker over and
+   * this failure belongs to a request that pick has superseded.
+   */
+  refuseAgentSwitch: (sessionId: string, agentName: string) => string | null
+  /**
    * Reconciles the composer with the agent on OpenCode's session record.
    * Returns true, and selects `agent` for the session, only when the record
    * holds a different agent than the one last followed (or none was followed
@@ -193,6 +203,23 @@ export const useSelectionStore = create<SelectionState>()(
         pendingSwitches.delete(sessionId)
         return { pendingAgentSwitches: pendingSwitches }
       }),
+
+      refuseAgentSwitch: (sessionId, agentName) => {
+        const marker = get().pendingAgentSwitches.get(sessionId)
+        // The marker names the newest pick in flight. When it names another
+        // agent, this refusal belongs to a request that pick has superseded.
+        if (marker === undefined || marker.agent !== agentName) return null
+        const followed = get().sessionFollowedAgents.get(sessionId) ?? null
+        set((s) => {
+          const pendingSwitches = new Map(s.pendingAgentSwitches)
+          pendingSwitches.delete(sessionId)
+          if (followed === null) return { pendingAgentSwitches: pendingSwitches }
+          const selections = new Map(s.sessionAgentSelections)
+          selections.set(sessionId, followed)
+          return { pendingAgentSwitches: pendingSwitches, sessionAgentSelections: selections }
+        })
+        return followed
+      },
 
       isSessionModelSwitched: (sessionId, model) => {
         const followed = get().sessionFollowedModels.get(sessionId)

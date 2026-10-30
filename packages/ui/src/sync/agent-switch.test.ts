@@ -34,6 +34,29 @@ describe('pushAgentSwitch', () => {
         expect(useSelectionStore.getState().followSessionAgent(SESSION, 'plan')).toBe(false);
     });
 
+    test('two picks reach the record in the order the user made them', async () => {
+        useSelectionStore.setState({ pendingAgentSwitches: new Map() });
+        const landed: string[] = [];
+        const session = 'ses_ordered';
+        const slow = {
+            switchSessionAgent: async (_sessionId: string, agent: string) => {
+                // The first request is slow enough that a second request fired
+                // at once would overtake it and leave the record on the first.
+                await new Promise((resolve) => setTimeout(resolve, agent === 'build' ? 20 : 0));
+                landed.push(agent);
+            },
+            begin: (sessionId: string, agentName: string) => useSelectionStore.getState().beginAgentSwitch(sessionId, agentName),
+            abandon: (sessionId: string) => useSelectionStore.getState().abandonAgentSwitch(sessionId),
+        };
+
+        await Promise.all([
+            pushAgentSwitch(slow, session, 'build', undefined),
+            pushAgentSwitch(slow, session, 'plan', undefined),
+        ]);
+
+        expect(landed).toEqual(['build', 'plan']);
+    });
+
     test('a refused switch drops the marker and reports the failure', async () => {
         useSelectionStore.setState({ pendingAgentSwitches: new Map() });
 

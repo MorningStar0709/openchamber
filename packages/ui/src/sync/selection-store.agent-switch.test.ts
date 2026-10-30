@@ -43,11 +43,25 @@ describe('agent pick in flight', () => {
         expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('plan');
     });
 
-    test('a failed switch drops the marker so the record wins again', () => {
+    test('a refused switch puts the pick back on the agent the session runs on', () => {
+        // The state the app is in before the pick: the record says plan, and
+        // the composer followed it.
+        useSelectionStore.getState().followSessionAgent(SESSION, 'plan');
         useSelectionStore.getState().beginAgentSwitch(SESSION, 'build');
-        useSelectionStore.getState().abandonAgentSwitch(SESSION);
 
-        expect(useSelectionStore.getState().followSessionAgent(SESSION, 'plan')).toBe(true);
+        expect(useSelectionStore.getState().refuseAgentSwitch(SESSION, 'build')).toBe('plan');
+        // A record that never changed is never re-read, so no effect would undo
+        // the pick: the selection has to carry the agent the session runs on.
+        expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('plan');
+        expect(useSelectionStore.getState().followSessionAgent(SESSION, 'plan')).toBe(false);
+    });
+
+    test('a refusal for a pick a newer one replaced leaves the newer pick alone', () => {
+        useSelectionStore.getState().followSessionAgent(SESSION, 'plan');
+        useSelectionStore.getState().beginAgentSwitch(SESSION, 'build');
+        useSelectionStore.getState().beginAgentSwitch(SESSION, 'plan');
+
+        expect(useSelectionStore.getState().refuseAgentSwitch(SESSION, 'build')).toBeNull();
         expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('plan');
     });
 

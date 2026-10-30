@@ -2845,7 +2845,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         if (!columnPinned) setAgent(nextAgentName);
 
         if (currentSessionId) {
-            commitAgentPick(currentSessionId, nextAgentName, currentSessionDirectoryForSync ?? undefined);
+            void commitAgentPick(currentSessionId, nextAgentName, currentSessionDirectoryForSync ?? undefined)
+                .then((landed) => {
+                    // The record refused the pick: the composer has to show the
+                    // agent the session runs on, and nothing else will do it.
+                    if (landed || columnPinned) return;
+                    const fallback = useSelectionStore.getState().getSessionAgentSelection(currentSessionId);
+                    if (fallback) setAgent(fallback, { keepModel: true });
+                });
         }
     }, [agents, columnPinned, currentAgentName, currentModelId, currentProviderId, currentSessionDirectoryForSync, currentSessionId, setAgent]);
 

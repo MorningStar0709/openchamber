@@ -281,7 +281,14 @@ export const useKeyboardShortcuts = () => {
       if (sessionId) {
         // The same pick as the agent menu's: it goes to the record now, in
         // the session's own directory, not on the next send.
-        commitAgentPick(sessionId, next, useSessionUIStore.getState().getDirectoryForSession(sessionId) ?? undefined);
+        void commitAgentPick(sessionId, next, useSessionUIStore.getState().getDirectoryForSession(sessionId) ?? undefined)
+          .then((landed) => {
+            // A refused pick leaves the record on the agent it already runs;
+            // the composer must follow it back.
+            if (landed) return;
+            const fallback = useSelectionStore.getState().getSessionAgentSelection(sessionId);
+            if (fallback) config.setAgent(fallback, { keepModel: true });
+          });
       }
     },
     toggle_terminal: () => {

@@ -1509,8 +1509,17 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
      * of the click, is what makes the pick happen at all.
      */
     const commitAgentPick = React.useCallback((sessionId: string, agentName: string) => {
-        commitSessionAgentPick(sessionId, agentName, getDirectoryForSession(sessionId) ?? undefined);
-    }, [getDirectoryForSession]);
+        void commitSessionAgentPick(sessionId, agentName, getDirectoryForSession(sessionId) ?? undefined)
+            .then((landed) => {
+                if (landed) return;
+                // A column renders its pick from the selection, which the
+                // refusal has already restored; the main composer reads the
+                // config store and needs putting back by hand.
+                if (selection) return;
+                const fallback = useSelectionStore.getState().getSessionAgentSelection(sessionId);
+                if (fallback) setAgent(fallback, { keepModel: true });
+            });
+    }, [getDirectoryForSession, selection, setAgent]);
 
     const handleAgentChange = React.useCallback((agentName: string, options?: { closeModelSelector?: boolean }) => {
         if (selection) {
