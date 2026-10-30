@@ -163,15 +163,19 @@ describe('a refusal after an earlier pick landed', () => {
     });
 });
 
-describe('a refusal with no agent known to be running', () => {
-    test('leaves the session to its record instead of keeping the refused pick', async () => {
+describe('a refusal with no agent yet known to be running', () => {
+    test('goes back to the agent the composer showed before the pick', async () => {
+        useSelectionStore.setState({
+            sessionAgentSelections: new Map([[SESSION, 'plan']]),
+            sessionFollowedAgents: new Map(),
+        });
         switchSpy.mockImplementation((async () => {
             throw new Error('refused');
         }) as never);
 
-        await commitAgentPick(SESSION, 'build', DIRECTORY);
+        await commitAgentPick(SESSION, 'build', DIRECTORY, { previousAgent: 'plan' });
 
-        expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBeNull();
+        expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('plan');
     });
 });
 
@@ -207,6 +211,51 @@ describe('the composer after a refusal', () => {
         await commitAgentPick(SESSION, 'build', DIRECTORY);
 
         expect(setAgent.mock.calls.length).toBe(0);
+        setAgent.mockRestore();
+    });
+});
+
+describe('a refusal that no longer owns the marker', () => {
+    test('leaves the composer on the pick that superseded it', async () => {
+        useSelectionStore.setState({
+            sessionAgentSelections: new Map([[SESSION, 'plan']]),
+            sessionFollowedAgents: new Map([[SESSION, 'plan']]),
+        });
+        let calls = 0;
+        switchSpy.mockImplementation((async () => {
+            calls += 1;
+            if (calls === 1) throw new Error('refused');
+        }) as never);
+        const setAgent = spyOn(useConfigStore.getState(), 'setAgent').mockImplementation(() => {});
+
+        const older = commitAgentPick(SESSION, 'build', DIRECTORY);
+        const newer = commitAgentPick(SESSION, 'work', DIRECTORY);
+        await Promise.all([older, newer]);
+
+        // The newer pick owns the selection; touching the composer would
+        // re-resolve its model to no purpose.
+        expect(setAgent.mock.calls.length).toBe(0);
+        expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('work');
+        setAgent.mockRestore();
+    });
+});
+
+describe('a refusal in a column picker', () => {
+    test('never moves the app-wide composer', async () => {
+        useSelectionStore.setState({
+            sessionAgentSelections: new Map([[SESSION, 'plan']]),
+            sessionFollowedAgents: new Map([[SESSION, 'plan']]),
+        });
+        switchSpy.mockImplementation((async () => {
+            throw new Error('refused');
+        }) as never);
+        const setAgent = spyOn(useConfigStore.getState(), 'setAgent').mockImplementation(() => {});
+
+        await commitAgentPick(SESSION, 'build', DIRECTORY, { column: true });
+
+        expect(setAgent.mock.calls.length).toBe(0);
+        // The column reads the store, which the refusal has already put back.
+        expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('plan');
         setAgent.mockRestore();
     });
 });

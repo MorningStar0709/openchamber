@@ -1511,9 +1511,14 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const commitAgentPick = React.useCallback((sessionId: string, agentName: string) => {
         // A refusal restores the composer itself (the selection entry for a
         // column, the app-wide agent for the main composer), so no path here
-        // repeats that correction or picks its own model semantics.
-        void commitSessionAgentPick(sessionId, agentName, getDirectoryForSession(sessionId) ?? undefined);
-    }, [getDirectoryForSession]);
+        // repeats that correction or picks its own model semantics. The origin
+        // and the agent shown before the pick travel along: a column that
+        // happens to show this session must not move the app-wide composer.
+        void commitSessionAgentPick(sessionId, agentName, getDirectoryForSession(sessionId) ?? undefined, {
+            column: Boolean(selection),
+            previousAgent: currentAgentName,
+        });
+    }, [currentAgentName, getDirectoryForSession, selection]);
 
     const handleAgentChange = React.useCallback((agentName: string, options?: { closeModelSelector?: boolean }) => {
         if (selection) {

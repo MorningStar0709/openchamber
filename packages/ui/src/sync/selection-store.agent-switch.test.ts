@@ -49,7 +49,7 @@ describe('agent pick in flight', () => {
         useSelectionStore.getState().followSessionAgent(SESSION, 'plan');
         useSelectionStore.getState().beginAgentSwitch(SESSION, 'build');
 
-        expect(useSelectionStore.getState().refuseAgentSwitch(SESSION, 'build')).toBe('plan');
+        expect(useSelectionStore.getState().refuseAgentSwitch(SESSION, 'build')).toEqual({ owned: true, fallback: 'plan' });
         // A record that never changed is never re-read, so no effect would undo
         // the pick: the selection has to carry the agent the session runs on.
         expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('plan');
@@ -61,7 +61,7 @@ describe('agent pick in flight', () => {
         useSelectionStore.getState().beginAgentSwitch(SESSION, 'build');
         useSelectionStore.getState().beginAgentSwitch(SESSION, 'plan');
 
-        expect(useSelectionStore.getState().refuseAgentSwitch(SESSION, 'build')).toBeNull();
+        expect(useSelectionStore.getState().refuseAgentSwitch(SESSION, 'build')).toEqual({ owned: false, fallback: null });
         expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('plan');
     });
 

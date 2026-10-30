@@ -18,7 +18,8 @@ function deps(outcome: 'ok' | 'fail', calls: Array<{ agent: string; directory?: 
             if (outcome === 'fail') throw new Error('agent build is not available in this directory');
         },
         begin: (sessionId: string, agentName: string) => useSelectionStore.getState().beginAgentSwitch(sessionId, agentName),
-        abandon: (sessionId: string) => useSelectionStore.getState().abandonAgentSwitch(sessionId),
+        abandon: (sessionId: string, agentName: string, token: number) =>
+            useSelectionStore.getState().refuseAgentSwitch(sessionId, agentName, token),
     };
 }
 
@@ -46,7 +47,8 @@ describe('pushAgentSwitch', () => {
                 landed.push(agent);
             },
             begin: (sessionId: string, agentName: string) => useSelectionStore.getState().beginAgentSwitch(sessionId, agentName),
-            abandon: (sessionId: string) => useSelectionStore.getState().abandonAgentSwitch(sessionId),
+            abandon: (sessionId: string, agentName: string, token: number) =>
+            useSelectionStore.getState().refuseAgentSwitch(sessionId, agentName, token),
         };
 
         await Promise.all([

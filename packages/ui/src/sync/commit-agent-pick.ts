@@ -28,11 +28,19 @@ import { pushAgentSwitch } from '@/sync/agent-switch';
  * for the refused agent, and going back has to resolve the restored agent's
  * own model instead of keeping the one that lost.
  */
-function restoreComposerAgent(sessionId: string): void {
+function restoreComposerAgent(sessionId: string, target: string | null, column: boolean): void {
+    if (target === null || column) return
+    // A column that happens to show this session must not move the app-wide
+    // composer: the column reads the selection, the app-wide one does not.
     if (useSessionUIStore.getState().currentSessionId !== sessionId) return
-    const fallback = useSelectionStore.getState().getSessionAgentSelection(sessionId)
-    if (fallback === null) return
-    useConfigStore.getState().setAgent(fallback)
+    useConfigStore.getState().setAgent(target)
+}
+
+export type CommitAgentPickOptions = {
+    /** The pick came from a column or the side panel, not the app-wide composer. */
+    column?: boolean
+    /** The agent that composer showed before the pick, for when the record's is unknown. */
+    previousAgent?: string | null
 }
 
 /**
@@ -46,7 +54,12 @@ function restoreComposerAgent(sessionId: string): void {
  *
  * Not awaited by the picker: it responds to the click, not to the round trip.
  */
-export function commitAgentPick(sessionId: string, agent: string, directory?: string): Promise<boolean> {
+export function commitAgentPick(
+    sessionId: string,
+    agent: string,
+    directory?: string,
+    options: CommitAgentPickOptions = {},
+): Promise<boolean> {
     const state = useSelectionStore.getState();
     // The record already names this agent and nothing is on its way to it: the
     // request would append a switch to the transcript and change nothing. With
@@ -64,8 +77,13 @@ export function commitAgentPick(sessionId: string, agent: string, directory?: st
         // The refusal undoes this request only: the token keeps a request the
         // user has already replaced from rolling the newer pick back.
         abandon: (id, name, token) => {
-            useSelectionStore.getState().refuseAgentSwitch(id, name, token);
-            restoreComposerAgent(id);
+            const refused = useSelectionStore.getState().refuseAgentSwitch(id, name, token);
+            // A refusal that no longer owns the marker belongs to a pick the
+            // user has already replaced: leave that one and its composer alone.
+            if (!refused.owned) return;
+            const target = refused.fallback ?? options.previousAgent ?? null;
+            if (target !== null) useSelectionStore.getState().saveSessionAgentSelection(id, target);
+            restoreComposerAgent(id, target, options.column === true);
         },
     }, sessionId, agent, directory).then(
         () => true,

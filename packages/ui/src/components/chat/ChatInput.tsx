@@ -2847,7 +2847,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         if (currentSessionId) {
             // A refusal puts the composer back on its own: the pick module owns
             // that correction for every path, so the three cannot drift apart.
-            void commitAgentPick(currentSessionId, nextAgentName, currentSessionDirectoryForSync ?? undefined);
+            void commitAgentPick(currentSessionId, nextAgentName, currentSessionDirectoryForSync ?? undefined, {
+                column: columnPinned,
+                previousAgent: currentAgentName,
+            });
         }
     }, [agents, columnPinned, currentAgentName, currentModelId, currentProviderId, currentSessionDirectoryForSync, currentSessionId, setAgent]);
 

@@ -61,9 +61,11 @@ export async function pushAgentSwitch(
 
     try {
         await run
-        deps.landed?.(sessionId, agent)
     } catch (error) {
         deps.abandon(sessionId, agent, token)
         throw error
     }
+    // Bookkeeping only: the record has already moved, so a throw here must not
+    // be reported as a refusal (nor roll the composer back off a landed pick).
+    deps.landed?.(sessionId, agent)
 }

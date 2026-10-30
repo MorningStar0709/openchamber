@@ -273,6 +273,7 @@ export const useKeyboardShortcuts = () => {
       const backward = combo && !combo.includes('shift') ? normalizeCombo(`shift+${combo}`) : '';
       const direction = backward && eventMatchesShortcut(event, backward) ? -1 : 1;
       const config = useConfigStore.getState();
+      const previousAgent = config.currentAgentName;
       const next = getCycledPrimaryAgentName(config.getVisibleAgents(), config.currentAgentName, direction, state.favoriteAgents);
       if (!next) return false;
       config.setAgent(next);
@@ -282,7 +283,12 @@ export const useKeyboardShortcuts = () => {
         // The same pick as the agent menu's: it goes to the record now, in
         // the session's own directory, not on the next send.
         // A refusal restores the composer itself, so every path behaves alike.
-        void commitAgentPick(sessionId, next, useSessionUIStore.getState().getDirectoryForSession(sessionId) ?? undefined);
+        void commitAgentPick(
+          sessionId,
+          next,
+          useSessionUIStore.getState().getDirectoryForSession(sessionId) ?? undefined,
+          { previousAgent },
+        );
       }
     },
     toggle_terminal: () => {
