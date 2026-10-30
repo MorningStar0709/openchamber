@@ -273,7 +273,12 @@ export const useKeyboardShortcuts = () => {
       const backward = combo && !combo.includes('shift') ? normalizeCombo(`shift+${combo}`) : '';
       const direction = backward && eventMatchesShortcut(event, backward) ? -1 : 1;
       const config = useConfigStore.getState();
-      const previousAgent = config.currentAgentName;
+      const shortcutSessionId = useSessionUIStore.getState().currentSessionId;
+      // What the composer shows before the pick (the session's selection wins
+      // over the config agent there), so a refusal can put it back.
+      const previousAgent = (shortcutSessionId
+        ? useSelectionStore.getState().getSessionAgentSelection(shortcutSessionId)
+        : null) ?? config.currentAgentName;
       const next = getCycledPrimaryAgentName(config.getVisibleAgents(), config.currentAgentName, direction, state.favoriteAgents);
       if (!next) return false;
       config.setAgent(next);
