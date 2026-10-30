@@ -45,7 +45,14 @@ type SelectionState = {
    * the marker stops holding the composer back and the record wins again. Not
    * persisted: a pick in flight does not outlive a reload.
    */
-  pendingAgentSwitches: Map<string, { agent: string; at: number }>
+  pendingAgentSwitches: Map<string, { agent: string; at: number; token: number }>
+  /**
+   * The agent the record last accepted for the session. A refusal puts the
+   * composer back on this, not on the last followed read: a record echo that
+   * arrived while a newer pick was in flight is dropped, so the read can be
+   * behind the record. Not persisted: it is a cache of the record, not state.
+   */
+  landedAgentSwitches: Map<string, string>
   sessionAgentModelSelections: Map<string, Map<string, ModelSelection>>
   agentModelVariantSelections: VariantSelections
   lastUsedProvider: LastUsedProvider | null
@@ -59,23 +66,26 @@ type SelectionState = {
    * the session record. Call before the switch request, so a record echo that
    * arrives mid-flight cannot undo the pick.
    */
-  beginAgentSwitch: (sessionId: string, agentName: string) => void
+  beginAgentSwitch: (sessionId: string, agentName: string) => number
   /**
    * Drops the marker for a switch that never landed (the request failed), so
    * the record wins again: the next reconcile puts the composer back on the
    * agent the session actually runs on.
    */
-  abandonAgentSwitch: (sessionId: string) => void
+  abandonAgentSwitch: (sessionId: string, agentName?: string, token?: number) => void
   /**
    * Undoes a pick the record refused. Drops its marker and selects the agent
    * the session last reconciled to, so the composer shows the agent the
    * session actually runs on rather than the one it never took.
    *
-   * Returns that agent, or null when there is nothing to go back to: no record
-   * value has been followed yet, or a newer pick has taken the marker over and
-   * this failure belongs to a request that pick has superseded.
+   * Returns that agent, or null when there is nothing to go back to: no write
+   * has landed and no record value was followed yet (the selection entry is
+   * then dropped, so consumers fall back to the record), or a newer pick has
+   * taken the marker over and this failure belongs to a request it superseded.
    */
-  refuseAgentSwitch: (sessionId: string, agentName: string) => string | null
+  refuseAgentSwitch: (sessionId: string, agentName: string, token?: number) => string | null
+  /** Notes the agent the record accepted, so a later refusal can restore it. */
+  markAgentSwitchLanded: (sessionId: string, agentName: string) => void
   /**
    * Reconciles the composer with the agent on OpenCode's session record.
    * Returns true, and selects `agent` for the session, only when the record
@@ -111,6 +121,9 @@ const MAX_PERSISTED_SESSIONS = 150
 // enough for a round trip and the echo after it, short enough that a lost echo
 // does not leave the session on an agent nobody chose.
 const PENDING_SWITCH_TTL_MS = 10_000
+// Distinguishes two requests for the same agent, so an older one failing does
+// not roll back the pick that replaced it.
+let nextSwitchToken = 1
 const variantSessionKey = (sessionId: string) => JSON.stringify([getRuntimeKey(), sessionId])
 
 export const useSelectionStore = create<SelectionState>()(
@@ -121,6 +134,7 @@ export const useSelectionStore = create<SelectionState>()(
       sessionFollowedAgents: new Map(),
       sessionFollowedModels: new Map(),
       pendingAgentSwitches: new Map(),
+      landedAgentSwitches: new Map(),
       sessionAgentModelSelections: new Map(),
       agentModelVariantSelections: new Map(),
       lastUsedProvider: null,
@@ -189,37 +203,70 @@ export const useSelectionStore = create<SelectionState>()(
 
       beginAgentSwitch: (sessionId, agentName) => {
         get().saveSessionAgentSelection(sessionId, agentName)
+        // Names this request, not just this agent: two picks for the same
+        // agent are two requests, and the first one failing must not undo the
+        // second.
+        const token = nextSwitchToken++
         set((s) => {
           const pendingSwitches = new Map(s.pendingAgentSwitches)
           pendingSwitches.delete(sessionId)
-          pendingSwitches.set(sessionId, { agent: agentName, at: Date.now() })
+          pendingSwitches.set(sessionId, { agent: agentName, at: Date.now(), token })
           return { pendingAgentSwitches: pendingSwitches }
         })
+        return token
       },
 
-      abandonAgentSwitch: (sessionId) => set((s) => {
-        if (!s.pendingAgentSwitches.has(sessionId)) return s
+      abandonAgentSwitch: (sessionId, agentName, token) => set((s) => {
+        const marker = s.pendingAgentSwitches.get(sessionId)
+        if (marker === undefined) return s
+        // A request the record has already answered is superseded: dropping
+        // the marker of a newer pick would leave that pick unprotected and
+        // silently roll it back.
+        if (token !== undefined && marker.token !== token) return s
+        if (agentName !== undefined && marker.agent !== agentName) return s
         const pendingSwitches = new Map(s.pendingAgentSwitches)
         pendingSwitches.delete(sessionId)
         return { pendingAgentSwitches: pendingSwitches }
       }),
 
-      refuseAgentSwitch: (sessionId, agentName) => {
+      refuseAgentSwitch: (sessionId, agentName, token) => {
         const marker = get().pendingAgentSwitches.get(sessionId)
         // The marker names the newest pick in flight. When it names another
-        // agent, this refusal belongs to a request that pick has superseded.
+        // request, this refusal belongs to one that pick has superseded.
         if (marker === undefined || marker.agent !== agentName) return null
-        const followed = get().sessionFollowedAgents.get(sessionId) ?? null
+        if (token !== undefined && marker.token !== token) return null
+        const state = get()
+        // What the record last accepted outranks what the composer last read:
+        // an echo that arrived while a newer pick was in flight is dropped, so
+        // the read can name an agent the record has already left.
+        const target = state.landedAgentSwitches.get(sessionId)
+            ?? state.sessionFollowedAgents.get(sessionId)
+            ?? null
         set((s) => {
           const pendingSwitches = new Map(s.pendingAgentSwitches)
           pendingSwitches.delete(sessionId)
-          if (followed === null) return { pendingAgentSwitches: pendingSwitches }
+          if (target === null) {
+            // Nothing is known to be running. Dropping the selection lets the
+            // record speak, which beats keeping the agent it just refused.
+            const selections = new Map(s.sessionAgentSelections)
+            selections.delete(sessionId)
+            return { pendingAgentSwitches: pendingSwitches, sessionAgentSelections: selections }
+          }
           const selections = new Map(s.sessionAgentSelections)
-          selections.set(sessionId, followed)
+          selections.delete(sessionId) // Delete first to ensure it moves to the end of insertion order (MRU)
+          selections.set(sessionId, target)
           return { pendingAgentSwitches: pendingSwitches, sessionAgentSelections: selections }
         })
-        return followed
+        return target
       },
+
+      markAgentSwitchLanded: (sessionId, agentName) => set((s) => {
+        if (s.landedAgentSwitches.get(sessionId) === agentName) return s
+        const landed = new Map(s.landedAgentSwitches)
+        landed.delete(sessionId)
+        landed.set(sessionId, agentName)
+        return { landedAgentSwitches: landed }
+      }),
 
       isSessionModelSwitched: (sessionId, model) => {
         const followed = get().sessionFollowedModels.get(sessionId)
@@ -258,20 +305,23 @@ export const useSelectionStore = create<SelectionState>()(
           && !state.sessionAgentSelections.has(sessionId)
           && !state.sessionFollowedAgents.has(sessionId)
           && !state.sessionFollowedModels.has(sessionId)
-          && !state.sessionAgentModelSelections.has(sessionId)) return state
+          && !state.sessionAgentModelSelections.has(sessionId)
+          && !state.landedAgentSwitches.has(sessionId)) return state
         const sessionModelSelections = new Map(state.sessionModelSelections)
         const sessionAgentSelections = new Map(state.sessionAgentSelections)
         const sessionFollowedAgents = new Map(state.sessionFollowedAgents)
         const sessionFollowedModels = new Map(state.sessionFollowedModels)
         const sessionAgentModelSelections = new Map(state.sessionAgentModelSelections)
+        const landedAgentSwitches = new Map(state.landedAgentSwitches)
         const agentModelVariantSelections = new Map(state.agentModelVariantSelections)
         sessionModelSelections.delete(sessionId)
         sessionAgentSelections.delete(sessionId)
         sessionFollowedAgents.delete(sessionId)
         sessionFollowedModels.delete(sessionId)
         sessionAgentModelSelections.delete(sessionId)
+        landedAgentSwitches.delete(sessionId)
         agentModelVariantSelections.delete(variantKey)
-        return { sessionModelSelections, sessionAgentSelections, sessionFollowedAgents, sessionFollowedModels, sessionAgentModelSelections, agentModelVariantSelections }
+        return { sessionModelSelections, sessionAgentSelections, sessionFollowedAgents, sessionFollowedModels, sessionAgentModelSelections, landedAgentSwitches, agentModelVariantSelections }
       }),
 
       saveAgentModelVariantForSession: (sessionId, agentName, providerId, modelId, variant) => set((state) => {

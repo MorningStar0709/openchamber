@@ -10,8 +10,30 @@
 import { toast } from 'sonner';
 import { opencodeClient } from '@/lib/opencode/client';
 import { formatMessage, useI18nStore } from '@/lib/i18n/store';
+import { useConfigStore } from '@/stores/useConfigStore';
 import { useSelectionStore } from '@/sync/selection-store';
+import { useSessionUIStore } from '@/sync/session-ui-store';
 import { pushAgentSwitch } from '@/sync/agent-switch';
+
+/**
+ * Puts the composer back on the agent a refused pick left behind.
+ *
+ * The refusal changed nothing on the record, so no effect comes along to undo
+ * the pick: the composer would keep showing an agent the session does not run
+ * on, and the next send would compare against that phantom. Only the composer
+ * that is showing this session is touched, and only when the store knows which
+ * agent to go back to — otherwise the record speaks.
+ *
+ * `setAgent` without `keepModel` on purpose: the forward pick resolved a model
+ * for the refused agent, and going back has to resolve the restored agent's
+ * own model instead of keeping the one that lost.
+ */
+function restoreComposerAgent(sessionId: string): void {
+    if (useSessionUIStore.getState().currentSessionId !== sessionId) return
+    const fallback = useSelectionStore.getState().getSessionAgentSelection(sessionId)
+    if (fallback === null) return
+    useConfigStore.getState().setAgent(fallback)
+}
 
 /**
  * Selects `agent` for the session and switches the record to it, in the
@@ -25,19 +47,25 @@ import { pushAgentSwitch } from '@/sync/agent-switch';
  * Not awaited by the picker: it responds to the click, not to the round trip.
  */
 export function commitAgentPick(sessionId: string, agent: string, directory?: string): Promise<boolean> {
-    // The record already names this agent: the request would append a switch
-    // to the session's transcript and change nothing.
-    if (useSelectionStore.getState().sessionFollowedAgents.get(sessionId) === agent) {
-        useSelectionStore.getState().saveSessionAgentSelection(sessionId, agent);
+    const state = useSelectionStore.getState();
+    // The record already names this agent and nothing is on its way to it: the
+    // request would append a switch to the transcript and change nothing. With
+    // a pick in flight the read is behind, and a pick that returns to the agent
+    // the record held must still be written behind it.
+    if (state.pendingAgentSwitches.get(sessionId) === undefined
+        && state.sessionFollowedAgents.get(sessionId) === agent) {
+        state.saveSessionAgentSelection(sessionId, agent);
         return Promise.resolve(true);
     }
     return pushAgentSwitch({
         switchSessionAgent: (id, name, dir) => opencodeClient.switchSessionAgent(id, name, dir),
         begin: (id, name) => useSelectionStore.getState().beginAgentSwitch(id, name),
-        // The refusal undoes the pick: it drops the marker and puts the
-        // selection back where the session already runs.
-        abandon: (id) => {
-            useSelectionStore.getState().refuseAgentSwitch(id, agent);
+        landed: (id, name) => useSelectionStore.getState().markAgentSwitchLanded(id, name),
+        // The refusal undoes this request only: the token keeps a request the
+        // user has already replaced from rolling the newer pick back.
+        abandon: (id, name, token) => {
+            useSelectionStore.getState().refuseAgentSwitch(id, name, token);
+            restoreComposerAgent(id);
         },
     }, sessionId, agent, directory).then(
         () => true,

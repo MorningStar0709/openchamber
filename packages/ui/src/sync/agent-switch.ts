@@ -10,10 +10,16 @@
 export type AgentSwitchDeps = {
     /** `switchSessionAgent` of the OpenCode client. Rejects when the server refuses. */
     switchSessionAgent: (sessionId: string, agent: string, directory?: string) => Promise<void>
-    /** Marks the pick as in flight, so a lagging record cannot undo it. */
-    begin: (sessionId: string, agent: string) => void
-    /** Drops that marker when the switch did not land. */
-    abandon: (sessionId: string) => void
+    /** Marks the pick as in flight, so a lagging record cannot undo it. Returns the request's token. */
+    begin: (sessionId: string, agent: string) => number
+    /**
+     * Drops that marker when the switch did not land. Carries the agent and the
+     * token of the request that failed: a newer pick may already own the
+     * marker, and rolling that one back would lose a choice the user made.
+     */
+    abandon: (sessionId: string, agent: string, token: number) => void
+    /** Notes the agent the record accepted, so a later refusal can restore it. */
+    landed?: (sessionId: string, agent: string) => void
 }
 
 /**
@@ -41,13 +47,12 @@ export async function pushAgentSwitch(
 ): Promise<void> {
     // The marker names the newest pick at once, not when its turn in the queue
     // comes: the record may echo the older one back while this one waits.
-    deps.begin(sessionId, agent)
+    const token = deps.begin(sessionId, agent)
 
     const previous = sessionChains.get(sessionId) ?? Promise.resolve()
-    const run = previous.then(
-        () => deps.switchSessionAgent(sessionId, agent, directory),
-        () => deps.switchSessionAgent(sessionId, agent, directory),
-    )
+    // `previous` is a tail, so it never rejects: the queue must not be blocked
+    // by a failure that the failing request itself reports to its caller.
+    const run = previous.then(() => deps.switchSessionAgent(sessionId, agent, directory))
     const tail = run.then(() => undefined, () => undefined)
     sessionChains.set(sessionId, tail)
     void tail.then(() => {
@@ -56,8 +61,9 @@ export async function pushAgentSwitch(
 
     try {
         await run
+        deps.landed?.(sessionId, agent)
     } catch (error) {
-        deps.abandon(sessionId)
+        deps.abandon(sessionId, agent, token)
         throw error
     }
 }

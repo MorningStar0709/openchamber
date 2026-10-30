@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { opencodeClient } from '@/lib/opencode/client';
 import { commitAgentPick } from '@/sync/commit-agent-pick';
+import { useConfigStore } from '@/stores/useConfigStore';
 import { useSelectionStore } from '@/sync/selection-store';
+import { useSessionUIStore } from '@/sync/session-ui-store';
 
 /**
  * What a refused pick leaves behind.
@@ -31,7 +33,9 @@ beforeEach(() => {
         sessionAgentSelections: new Map(),
         sessionFollowedAgents: new Map(),
         pendingAgentSwitches: new Map(),
+        landedAgentSwitches: new Map(),
     });
+    useSessionUIStore.setState({ currentSessionId: SESSION });
 });
 
 afterEach(() => {
@@ -78,5 +82,131 @@ describe('a pick the record accepts', () => {
 
         expect(landed).toBe(true);
         expect(writes).toEqual([{ agent: 'build', directory: DIRECTORY }]);
+    });
+});
+
+describe('a pick that returns to the agent the record held', () => {
+    test('is still written behind the pick already in flight', async () => {
+        useSelectionStore.setState({
+            sessionAgentSelections: new Map([[SESSION, 'plan']]),
+            sessionFollowedAgents: new Map([[SESSION, 'plan']]),
+        });
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        switchSpy.mockImplementationOnce((async (
+            _sessionId: string,
+            agent: string,
+            directory?: string,
+        ) => {
+            writes.push({ agent, directory });
+            await gate;
+        }) as never);
+
+        const first = commitAgentPick(SESSION, 'build', DIRECTORY);
+        const second = commitAgentPick(SESSION, 'plan', DIRECTORY);
+        await settle();
+        // The earlier pick owns the record until it lands, so this one waits.
+        expect(writes.map((write) => write.agent)).toEqual(['build']);
+
+        release();
+        await Promise.all([first, second]);
+
+        // Both went: the last pick is the one the record must end on.
+        expect(writes.map((write) => write.agent)).toEqual(['build', 'plan']);
+        expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('plan');
+    });
+});
+
+describe('two picks for the same agent', () => {
+    test('keep the newer one when the older request is refused', async () => {
+        useSelectionStore.setState({
+            sessionAgentSelections: new Map([[SESSION, 'plan']]),
+            sessionFollowedAgents: new Map([[SESSION, 'plan']]),
+        });
+        let calls = 0;
+        switchSpy.mockImplementation((async (
+            _sessionId: string,
+            agent: string,
+            directory?: string,
+        ) => {
+            calls += 1;
+            writes.push({ agent, directory });
+            if (calls === 1) throw new Error('refused');
+        }) as never);
+
+        const older = commitAgentPick(SESSION, 'build', DIRECTORY);
+        const newer = commitAgentPick(SESSION, 'build', DIRECTORY);
+
+        expect(await older).toBe(false);
+        expect(await newer).toBe(true);
+        // The refusal belonged to a request the newer pick superseded.
+        expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('build');
+        // The marker still stands for the newer request, waiting for its echo.
+        expect(useSelectionStore.getState().pendingAgentSwitches.get(SESSION)?.agent).toBe('build');
+    });
+});
+
+describe('a refusal after an earlier pick landed', () => {
+    test('restores the agent the record accepted, not a stale read', async () => {
+        await commitAgentPick(SESSION, 'build', DIRECTORY);
+        // The echo of that write never reached the folio: the read is behind.
+        useSelectionStore.setState({ sessionFollowedAgents: new Map([[SESSION, 'plan']]) });
+        switchSpy.mockImplementation((async () => {
+            throw new Error('refused');
+        }) as never);
+
+        await commitAgentPick(SESSION, 'work', DIRECTORY);
+
+        expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('build');
+    });
+});
+
+describe('a refusal with no agent known to be running', () => {
+    test('leaves the session to its record instead of keeping the refused pick', async () => {
+        switchSpy.mockImplementation((async () => {
+            throw new Error('refused');
+        }) as never);
+
+        await commitAgentPick(SESSION, 'build', DIRECTORY);
+
+        expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBeNull();
+    });
+});
+
+describe('the composer after a refusal', () => {
+    test('goes back to the restored agent, with that agent own model', async () => {
+        useSelectionStore.setState({
+            sessionAgentSelections: new Map([[SESSION, 'plan']]),
+            sessionFollowedAgents: new Map([[SESSION, 'plan']]),
+        });
+        switchSpy.mockImplementation((async () => {
+            throw new Error('refused');
+        }) as never);
+        const setAgent = spyOn(useConfigStore.getState(), 'setAgent').mockImplementation(() => {});
+
+        await commitAgentPick(SESSION, 'build', DIRECTORY);
+
+        expect(setAgent.mock.calls.length).toBe(1);
+        expect(setAgent.mock.calls[0]).toEqual(['plan']);
+        setAgent.mockRestore();
+    });
+
+    test('is left alone when it has moved to another session', async () => {
+        useSelectionStore.setState({
+            sessionAgentSelections: new Map([[SESSION, 'plan']]),
+            sessionFollowedAgents: new Map([[SESSION, 'plan']]),
+        });
+        useSessionUIStore.setState({ currentSessionId: 'ses_somewhere_else' });
+        switchSpy.mockImplementation((async () => {
+            throw new Error('refused');
+        }) as never);
+        const setAgent = spyOn(useConfigStore.getState(), 'setAgent').mockImplementation(() => {});
+
+        await commitAgentPick(SESSION, 'build', DIRECTORY);
+
+        expect(setAgent.mock.calls.length).toBe(0);
+        setAgent.mockRestore();
     });
 });
