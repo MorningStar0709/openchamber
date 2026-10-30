@@ -273,17 +273,15 @@ export const useKeyboardShortcuts = () => {
       const backward = combo && !combo.includes('shift') ? normalizeCombo(`shift+${combo}`) : '';
       const direction = backward && eventMatchesShortcut(event, backward) ? -1 : 1;
       const config = useConfigStore.getState();
-      const shortcutSessionId = useSessionUIStore.getState().currentSessionId;
-      // What the composer shows before the pick (the session's selection wins
-      // over the config agent there), so a refusal can put it back.
-      const previousAgent = (shortcutSessionId
-        ? useSelectionStore.getState().getSessionAgentSelection(shortcutSessionId)
-        : null) ?? config.currentAgentName;
+      // This path cycles the config agent, so that is what a refusal puts
+      // back. Reading the selection map here instead would name an agent this
+      // shortcut never showed (it has no view of the composer's sticky name).
+      const previousAgent = config.currentAgentName;
+      const sessionId = useSessionUIStore.getState().currentSessionId;
       const next = getCycledPrimaryAgentName(config.getVisibleAgents(), config.currentAgentName, direction, state.favoriteAgents);
       if (!next) return false;
       config.setAgent(next);
       state.addRecentAgent(next);
-      const sessionId = useSessionUIStore.getState().currentSessionId;
       if (sessionId) {
         // The same pick as the agent menu's: it goes to the record now, in
         // the session's own directory, not on the next send.

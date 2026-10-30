@@ -1516,10 +1516,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         // happens to show this session must not move the app-wide composer.
         void commitSessionAgentPick(sessionId, agentName, getDirectoryForSession(sessionId) ?? undefined, {
             column: Boolean(selection),
-            // What this control showed before the pick: the column renders its
-            // own session's selection, the main composer renders `uiAgentName`
-            // (the selection entry wins over the config agent there).
-            previousAgent: selection ? selection.agent : uiAgentName,
+            // What this control showed before the pick: the column, the main
+            // composer and the btw selection all render `uiAgentName`.
+            previousAgent: uiAgentName,
         });
     }, [getDirectoryForSession, selection, uiAgentName]);
 
