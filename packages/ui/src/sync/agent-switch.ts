@@ -66,6 +66,11 @@ export async function pushAgentSwitch(
         throw error
     }
     // Bookkeeping only: the record has already moved, so a throw here must not
-    // be reported as a refusal (nor roll the composer back off a landed pick).
-    deps.landed?.(sessionId, agent)
+    // reject this promise — the caller would report a landed pick as a refusal
+    // and roll the composer off it.
+    try {
+        deps.landed?.(sessionId, agent)
+    } catch (error) {
+        console.error('[agent-pick] Recording the landed switch failed:', error)
+    }
 }

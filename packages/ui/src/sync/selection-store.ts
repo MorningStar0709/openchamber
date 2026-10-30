@@ -30,7 +30,19 @@ const persistedSelectionSchema = z.object({
   lastUsedProvider: z.object({ providerID: z.string(), modelID: z.string() }).nullable().optional().catch(undefined),
 })
 
-/** What a refusal found: whether it owned the marker, and the agent to go back to. */
+/**
+ * What a refusal found.
+ *
+ * `owned: false` — a newer pick had already taken the marker over (or the
+ * marker was gone): the caller must leave both the selection and the composer
+ * alone, because the choice on screen is the user's latest one.
+ *
+ * `owned: true` — this request's pick was the one refused. `fallback` is the
+ * agent to go back to (the one the record last accepted, else the one the
+ * composer showed before the pick), or null when nothing is known, in which
+ * case the selection entry has been dropped and consumers fall back to the
+ * record.
+ */
 export type RefusedPick = { owned: boolean; fallback: string | null }
 
 type SelectionState = {
@@ -48,7 +60,7 @@ type SelectionState = {
    * the marker stops holding the composer back and the record wins again. Not
    * persisted: a pick in flight does not outlive a reload.
    */
-  pendingAgentSwitches: Map<string, { agent: string; at: number; token: number }>
+  pendingAgentSwitches: Map<string, { agent: string; at: number; token: number; previous: string | null }>
   /**
    * The agent the record last accepted for the session. A refusal puts the
    * composer back on this, not on the last followed read: a record echo that
@@ -206,6 +218,10 @@ export const useSelectionStore = create<SelectionState>()(
       },
 
       beginAgentSwitch: (sessionId, agentName) => {
+        // What the composer showed before this pick: the agent to go back to
+        // when the record's own agent is not known yet. Read before the pick
+        // overwrites the entry.
+        const previous = get().sessionAgentSelections.get(sessionId) ?? null
         get().saveSessionAgentSelection(sessionId, agentName)
         // Names this request, not just this agent: two picks for the same
         // agent are two requests, and the first one failing must not undo the
@@ -214,7 +230,7 @@ export const useSelectionStore = create<SelectionState>()(
         set((s) => {
           const pendingSwitches = new Map(s.pendingAgentSwitches)
           pendingSwitches.delete(sessionId)
-          pendingSwitches.set(sessionId, { agent: agentName, at: Date.now(), token })
+          pendingSwitches.set(sessionId, { agent: agentName, at: Date.now(), token, previous })
           return { pendingAgentSwitches: pendingSwitches }
         })
         return token
@@ -233,14 +249,21 @@ export const useSelectionStore = create<SelectionState>()(
         // the read can name an agent the record has already left.
         const fallback = state.landedAgentSwitches.get(sessionId)
             ?? state.sessionFollowedAgents.get(sessionId)
+            ?? marker.previous
             ?? null
         set((s) => {
           const pendingSwitches = new Map(s.pendingAgentSwitches)
           pendingSwitches.delete(sessionId)
-          if (fallback === null) return { pendingAgentSwitches: pendingSwitches }
-          // Pinned columns read this map, so the pick has to go back here; the
-          // app-wide composer is the caller's business.
+          // Pinned columns and the side panel read this map, so the pick has to
+          // go back here; the app-wide composer is the caller's business.
           const selections = new Map(s.sessionAgentSelections)
+          if (fallback === null) {
+            // Nothing is known to be running: dropping the entry lets those
+            // consumers fall back to the record instead of keeping the agent
+            // it just refused. No echo will ever rewrite it.
+            selections.delete(sessionId)
+            return { pendingAgentSwitches: pendingSwitches, sessionAgentSelections: selections }
+          }
           selections.delete(sessionId) // Delete first to ensure it moves to the end of insertion order (MRU)
           selections.set(sessionId, fallback)
           return { pendingAgentSwitches: pendingSwitches, sessionAgentSelections: selections }
