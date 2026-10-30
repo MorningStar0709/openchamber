@@ -86,13 +86,15 @@ type SelectionState = {
   beginAgentSwitch: (sessionId: string, agentName: string) => number
   /**
    * Undoes a pick the record refused. Drops its marker and selects the agent
-   * the session last reconciled to, so the composer shows the agent the
-   * session actually runs on rather than the one it never took.
+   * the record last accepted, so the composer shows the agent the session
+   * actually runs on rather than the one it never took.
    *
-   * Returns that agent, or null when there is nothing to go back to: no write
-   * has landed and no record value was followed yet (the selection entry is
-   * then dropped, so consumers fall back to the record), or a newer pick has
-   * taken the marker over and this failure belongs to a request it superseded.
+   * Returns `{ owned, fallback }`. `owned` is false when a newer pick has taken
+   * the marker over: this failure belongs to a request the user superseded, and
+   * the caller must leave the newer pick and its composer alone. When `owned`
+   * is true, `fallback` is the agent to go back to — the landed cache first,
+   * then the last followed record value — or null when neither exists (the
+   * selection entry is then dropped, so consumers fall back to the record).
    */
   refuseAgentSwitch: (sessionId: string, agentName: string, token?: number) => RefusedPick
   /** Notes the agent the record accepted, so a later refusal can restore it. */

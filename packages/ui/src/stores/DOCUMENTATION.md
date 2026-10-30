@@ -416,7 +416,11 @@ through `session.agent.selected`, and `ModelControls` follows the record through
 `useSelectionStore.followSessionAgent`. That store remembers, per session and
 persisted, the record agent the composer last followed: a record agent it has not
 followed yet is a newer switch and replaces the pick, an unchanged record leaves a
-pick made after it in place across session switches and reloads. A record echo
+pick made after it in place across session switches and reloads. A refused pick
+is taken back by that same module: the record's agent goes back into the
+selection and the composer is put on it with `setAgent(name)` — no
+`keepModel`, because the refused agent resolved a model of its own and going back
+has to resolve the restored agent's model rather than keep the one that lost. A record echo
 that arrives while this client's own pick is in flight is the exception: it still
 names the previous agent, so the marker holds the follow until the record names the
 picked agent, and releases it after `PENDING_SWITCH_TTL_MS` (10 s) if the echo

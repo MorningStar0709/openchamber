@@ -305,8 +305,16 @@ switch: it still names the previous agent, so `followSessionAgent` holds the
 composer until the record names the picked agent, then clears the marker. The
 marker carries the time it started and `PENDING_SWITCH_TTL_MS` (10 s) bounds it,
 so an echo that never lands releases the composer instead of holding it for the
-rest of the session. A refused switch drops the marker at once and reports
-through the catalog (`chat.agent.switchFailed`). The composer side of this rule is
+rest of the session. A refused switch takes its marker back and reports through the catalog
+(`chat.agent.switchFailed`): it selects the agent the record last accepted
+(`landedAgentSwitches`, which outranks a followed read that an in-flight pick
+already made stale) and the composer is put back on it, because a refusal
+changes nothing on the record and no effect comes along to undo the pick. A
+refusal that a newer pick has superseded owns no marker and does nothing, so a
+slow failure cannot roll back the agent the user picked after it. Writes for one
+session serialize in pick order, so two quick picks land as picked and not as
+answered. A pick naming the agent the record already holds writes nothing,
+unless another pick is in flight and the record is therefore behind. The composer side of this rule is
 in `packages/ui/src/stores/DOCUMENTATION.md`.
 
 ### Why the pick is written at pick time and its marker is bounded by time
