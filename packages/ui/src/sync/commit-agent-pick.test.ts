@@ -166,7 +166,7 @@ describe('a refusal after an earlier pick landed', () => {
 describe('a refusal with no agent yet known to be running', () => {
     test('goes back to the agent the composer showed before the pick', async () => {
         useSelectionStore.setState({
-            sessionAgentSelections: new Map([[SESSION, 'plan']]),
+            sessionAgentSelections: new Map([[SESSION, 'build']]),
             sessionFollowedAgents: new Map(),
         });
         switchSpy.mockImplementation((async () => {
@@ -176,6 +176,23 @@ describe('a refusal with no agent yet known to be running', () => {
         await commitAgentPick(SESSION, 'build', DIRECTORY, { previousAgent: 'plan' });
 
         expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBe('plan');
+    });
+
+    test('never takes the refused agent back from the picker that reports it', async () => {
+        // setAgent writes the pick into the selection map before it is
+        // committed, so a picker can only report the refused agent as its
+        // previous one. That is not a fallback.
+        useSelectionStore.setState({
+            sessionAgentSelections: new Map([[SESSION, 'build']]),
+            sessionFollowedAgents: new Map(),
+        });
+        switchSpy.mockImplementation((async () => {
+            throw new Error('refused');
+        }) as never);
+
+        await commitAgentPick(SESSION, 'build', DIRECTORY, { previousAgent: 'build' });
+
+        expect(useSelectionStore.getState().getSessionAgentSelection(SESSION)).toBeNull();
     });
 });
 

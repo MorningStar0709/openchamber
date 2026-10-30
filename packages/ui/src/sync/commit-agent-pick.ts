@@ -81,7 +81,12 @@ export function commitAgentPick(
             // A refusal that no longer owns the marker belongs to a pick the
             // user has already replaced: leave that one and its composer alone.
             if (!refused.owned) return;
-            const target = refused.fallback ?? options.previousAgent ?? null;
+            // The caller's own "before the pick" value is the last resort, and
+            // only when it names something other than the refused agent: a
+            // picker that had already written the pick into the selection map
+            // (setAgent does) reports the refused agent back as its previous.
+            const previous = options.previousAgent ?? null;
+            const target = refused.fallback ?? (previous !== agent ? previous : null);
             if (target !== null) useSelectionStore.getState().saveSessionAgentSelection(id, target);
             restoreComposerAgent(id, target, options.column === true);
         },

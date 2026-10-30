@@ -38,10 +38,12 @@ const persistedSelectionSchema = z.object({
  * alone, because the choice on screen is the user's latest one.
  *
  * `owned: true` — this request's pick was the one refused. `fallback` is the
- * agent to go back to (the one the record last accepted, else the one the
- * composer showed before the pick), or null when nothing is known, in which
- * case the selection entry has been dropped and consumers fall back to the
- * record.
+ * agent the record is known to run on (the one it last accepted, else the one
+ * it last followed), or null when nothing is known: then the selection entry
+ * has been dropped and consumers fall back to the record. The pick cannot
+ * supply its own fallback — the selection map already holds it by the time
+ * the pick is made — so the caller's own "what I showed before" value is the
+ * last resort, and commitAgentPick takes it from options.previousAgent.
  */
 export type RefusedPick = { owned: boolean; fallback: string | null }
 
@@ -60,7 +62,7 @@ type SelectionState = {
    * the marker stops holding the composer back and the record wins again. Not
    * persisted: a pick in flight does not outlive a reload.
    */
-  pendingAgentSwitches: Map<string, { agent: string; at: number; token: number; previous: string | null }>
+  pendingAgentSwitches: Map<string, { agent: string; at: number; token: number }>
   /**
    * The agent the record last accepted for the session. A refusal puts the
    * composer back on this, not on the last followed read: a record echo that
@@ -218,10 +220,6 @@ export const useSelectionStore = create<SelectionState>()(
       },
 
       beginAgentSwitch: (sessionId, agentName) => {
-        // What the composer showed before this pick: the agent to go back to
-        // when the record's own agent is not known yet. Read before the pick
-        // overwrites the entry.
-        const previous = get().sessionAgentSelections.get(sessionId) ?? null
         get().saveSessionAgentSelection(sessionId, agentName)
         // Names this request, not just this agent: two picks for the same
         // agent are two requests, and the first one failing must not undo the
@@ -230,7 +228,7 @@ export const useSelectionStore = create<SelectionState>()(
         set((s) => {
           const pendingSwitches = new Map(s.pendingAgentSwitches)
           pendingSwitches.delete(sessionId)
-          pendingSwitches.set(sessionId, { agent: agentName, at: Date.now(), token, previous })
+          pendingSwitches.set(sessionId, { agent: agentName, at: Date.now(), token })
           return { pendingAgentSwitches: pendingSwitches }
         })
         return token
@@ -249,7 +247,6 @@ export const useSelectionStore = create<SelectionState>()(
         // the read can name an agent the record has already left.
         const fallback = state.landedAgentSwitches.get(sessionId)
             ?? state.sessionFollowedAgents.get(sessionId)
-            ?? marker.previous
             ?? null
         set((s) => {
           const pendingSwitches = new Map(s.pendingAgentSwitches)
