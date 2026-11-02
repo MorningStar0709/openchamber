@@ -13,9 +13,10 @@
  *   transcription as plain message content; no instruction message needed.
  */
 
-import { assertAudioBuffer, assertHttpUrl, audioFormatOf, requireSpeechCredentials } from './validate.js';
+import { assertAudioBuffer, assertHttpUrl, audioBufferFromBase64, audioFormatOf, contentTextOf, requireSpeechCredentials } from './validate.js';
 
 const REQUEST_TIMEOUT_MS = 120_000;
+const DEFAULT_TTS_MODEL = 'mimo-v2.5-tts';
 const DEFAULT_STT_MODEL = 'mimo-v2.5-asr';
 
 function chatCompletionsUrl(baseURL) {
@@ -28,30 +29,42 @@ function summarizeErrorBody(text) {
 }
 
 async function postChatCompletions({ baseURL, apiKey, body, label }) {
-  const response = await fetch(chatCompletionsUrl(baseURL), {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
+  let response;
+  try {
+    response = await fetch(chatCompletionsUrl(baseURL), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw new Error(`${label} request failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
   if (!response.ok) {
     const raw = await response.text().catch(() => '');
     const data = (() => { try { return JSON.parse(raw); } catch { return null; } })();
     const message = data?.error?.message || data?.message;
-    throw new Error(message || `${label} failed with HTTP ${response.status}${summarizeErrorBody(raw)}`);
+    throw new Error(message
+      ? `${label} failed with HTTP ${response.status}: ${message}`
+      : `${label} failed with HTTP ${response.status}${summarizeErrorBody(raw)}`);
   }
-  return response.json();
+  try {
+    return await response.json();
+  } catch {
+    throw new Error(`${label} returned an unparseable JSON response.`);
+  }
 }
 
 /** @public */
 export const mimoProvider = {
   id: 'mimo',
   label: 'MiMo (Qwen-Omni chat/completions)',
+  defaultTtsModel: DEFAULT_TTS_MODEL,
 
-  async synth({ text, voice, model = 'mimo-v2.5-tts', apiKey, baseURL }) {
+  async synth({ text, voice, model = DEFAULT_TTS_MODEL, apiKey, baseURL }) {
     requireSpeechCredentials(apiKey, 'MiMo TTS');
     if (!baseURL) throw new Error('MiMo TTS requires a custom server URL.');
     const data = await postChatCompletions({
@@ -67,11 +80,12 @@ export const mimoProvider = {
         audio: { voice: voice ?? 'mimo_default', format: 'wav' },
       },
     });
-    const audioData = data?.choices?.[0]?.message?.audio?.data;
-    if (!audioData) throw new Error('MiMo TTS returned no audio.');
+    const audio = data?.choices?.[0]?.message?.audio;
+    if (!audio?.data) throw new Error('MiMo TTS returned no audio.');
+    const format = typeof audio.format === 'string' && /^[a-z0-9.+-]+$/.test(audio.format) ? audio.format : 'wav';
     return {
-      buffer: Buffer.from(audioData, 'base64'),
-      contentType: 'audio/wav',
+      buffer: audioBufferFromBase64(audio.data, 'MiMo TTS'),
+      contentType: `audio/${format}`,
     };
   },
 
@@ -94,6 +108,8 @@ export const mimoProvider = {
         modalities: ['audio', 'text'],
       },
     });
-    return data?.choices?.[0]?.message?.content ?? '';
+    const text = contentTextOf(data?.choices?.[0]?.message?.content);
+    if (!text) throw new Error('MiMo STT returned no transcription text.');
+    return text;
   },
 };

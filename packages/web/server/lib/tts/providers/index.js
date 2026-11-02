@@ -23,14 +23,19 @@ import { mimoProvider } from './mimo.js';
 import { bailianProvider } from './bailian.js';
 
 /** @public */
-export const SPEECH_PROVIDERS = [openaiAudioProvider, mimoProvider, bailianProvider];
+export const SPEECH_PROVIDERS = Object.freeze([openaiAudioProvider, mimoProvider, bailianProvider]);
 
 // Fail fast at load time on a malformed registry rather than silently
 // dispatching to a half-registered provider at request time.
+const seenProviderIds = new Set();
 for (const provider of SPEECH_PROVIDERS) {
   if (!provider || typeof provider.id !== 'string' || !provider.id) {
     throw new Error('tts/providers: every provider must export a non-empty string id.');
   }
+  if (seenProviderIds.has(provider.id)) {
+    throw new Error(`tts/providers: duplicate provider id "${provider.id}".`);
+  }
+  seenProviderIds.add(provider.id);
   for (const method of ['synth', 'transcribe']) {
     if (typeof provider[method] !== 'function') {
       throw new Error(`tts/providers: provider "${provider.id}" must implement ${method}().`);

@@ -12,15 +12,25 @@
  *   model answers the audio conversationally instead of transcribing it.
  */
 
-import { assertAudioBuffer, assertHttpUrl, audioFormatOf, requireSpeechCredentials } from './validate.js';
+import { assertAudioBuffer, assertHttpUrl, audioBufferFromBase64, audioFormatOf, contentTextOf, requireSpeechCredentials } from './validate.js';
 
 const TTS_PATH = '/api/v1/services/aigc/multimodal-generation/generation';
 const DEFAULT_ORIGIN = 'https://dashscope.aliyuncs.com';
 const DEFAULT_STT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+const DEFAULT_TTS_MODEL = 'qwen3-tts-flash';
 const DEFAULT_STT_MODEL = 'qwen3.5-omni-flash';
 const REQUEST_TIMEOUT_MS = 120_000;
 const MAX_AUDIO_DOWNLOAD_BYTES = 32 * 1024 * 1024;
 const TRANSCRIBE_INSTRUCTION = '请把用户消息中的音频转写为文字，只输出转写文本，不要回答问题。';
+
+/** Fetch with network failures wrapped in a provider-labelled message. */
+async function fetchChecked(url, init, label) {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    throw new Error(`${label} request failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 
 async function readJson(response, what) {
   const data = await response.json().catch(() => ({}));
@@ -46,7 +56,12 @@ async function downloadAudio(url) {
     // Only fetch URLs the API vouched for over TLS; never http:// or other schemes.
     throw new Error(`Bailian TTS audio URL must be https (got ${parsed.protocol}//…).`);
   }
-  const response = await fetch(parsed, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  // redirect:'error' so a 302 cannot bounce the download off the https check
+  // onto an http:// or internal address.
+  const response = await fetchChecked(parsed, {
+    redirect: 'error',
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  }, 'Bailian TTS audio download');
   if (!response.ok) {
     throw new Error(`Failed to fetch Bailian audio result (HTTP ${response.status}).`);
   }
@@ -54,10 +69,20 @@ async function downloadAudio(url) {
   if (Number.isFinite(length) && length > MAX_AUDIO_DOWNLOAD_BYTES) {
     throw new Error(`Bailian audio result exceeds the ${MAX_AUDIO_DOWNLOAD_BYTES / (1024 * 1024)}MB size limit.`);
   }
-  const buffer = Buffer.from(await response.arrayBuffer());
-  if (buffer.length > MAX_AUDIO_DOWNLOAD_BYTES) {
-    throw new Error(`Bailian audio result exceeds the ${MAX_AUDIO_DOWNLOAD_BYTES / (1024 * 1024)}MB size limit.`);
+  // Stream the body so a missing or forged content-length cannot bypass the cap.
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_AUDIO_DOWNLOAD_BYTES) {
+      throw new Error(`Bailian audio result exceeds the ${MAX_AUDIO_DOWNLOAD_BYTES / (1024 * 1024)}MB size limit.`);
+    }
+    chunks.push(value);
   }
+  const buffer = Buffer.concat(chunks);
   // Only audio content types are served to the client; anything else is
   // treated as a mislabeled WAV (the API is expected to return audio/wav).
   const served = response.headers.get('content-type') ?? '';
@@ -65,27 +90,16 @@ async function downloadAudio(url) {
   return { buffer, contentType };
 }
 
-/** Reduce an Omni chat message content (string | content-block[]) to text. */
-function contentTextOf(content) {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
-      .map((block) => block.text)
-      .join('');
-  }
-  return '';
-}
-
 /** @public */
 export const bailianProvider = {
   id: 'bailian',
   label: 'Bailian (qwen3-tts + qwen-omni)',
+  defaultTtsModel: DEFAULT_TTS_MODEL,
 
-  async synth({ text, voice, model = 'qwen3-tts-flash', apiKey, baseURL }) {
+  async synth({ text, voice, model = DEFAULT_TTS_MODEL, apiKey, baseURL }) {
     requireSpeechCredentials(apiKey, 'Bailian TTS');
     if (!voice) throw new Error('Bailian TTS requires a voice.');
-    const response = await fetch(ttsUrl(baseURL), {
+    const response = await fetchChecked(ttsUrl(baseURL), {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -97,11 +111,11 @@ export const bailianProvider = {
         parameters: { voice, format: 'wav' },
       }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    }, 'Bailian TTS');
     const data = await readJson(response, 'Bailian TTS');
     const audio = data?.output?.audio;
     if (audio?.data) {
-      return { buffer: Buffer.from(audio.data, 'base64'), contentType: 'audio/wav' };
+      return { buffer: audioBufferFromBase64(audio.data, 'Bailian TTS'), contentType: 'audio/wav' };
     }
     if (audio?.url) {
       return downloadAudio(audio.url);
@@ -116,7 +130,7 @@ export const bailianProvider = {
     assertAudioBuffer(audioBuffer, 'Bailian STT');
     const format = audioFormatOf(mimeType);
     const dataUri = `data:${mimeType};base64,${audioBuffer.toString('base64')}`;
-    const response = await fetch(`${assertHttpUrl(baseURL, 'Bailian STT base URL')}/chat/completions`, {
+    const response = await fetchChecked(`${assertHttpUrl(baseURL, 'Bailian STT base URL')}/chat/completions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -131,7 +145,7 @@ export const bailianProvider = {
         modalities: ['audio', 'text'],
       }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    }, 'Bailian STT');
     const data = await readJson(response, 'Bailian STT');
     const text = contentTextOf(data?.choices?.[0]?.message?.content);
     if (!text) throw new Error('Bailian STT returned no transcription text.');

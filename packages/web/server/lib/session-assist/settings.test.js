@@ -83,3 +83,45 @@ describe('readSessionAssistQuietMs degradation', () => {
     vi.unstubAllEnvs();
   });
 });
+
+describe('readSessionAssistQuietMs (delta 2)', () => {
+  it('warns only once for a persistently invalid value', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oc-assist-quiet-warnonce-'));
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ sessionAssistIdleQuietMs: 500 }));
+    vi.stubEnv('OPENCHAMBER_DATA_DIR', dir);
+    vi.resetModules();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { readSessionAssistQuietMs: read } = await import('./settings.js');
+    read();
+    read();
+    read();
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+  });
+});
+
+describe('readSessionAssistTargets (delta 2)', () => {
+  it('falls back to both targets enabled when the settings file is unreadable', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oc-assist-targets-corrupt-'));
+    writeFileSync(join(dir, 'settings.json'), '{not valid json');
+    vi.stubEnv('OPENCHAMBER_DATA_DIR', dir);
+    vi.resetModules();
+    const { readSessionAssistTargets } = await import('./settings.js');
+    expect(readSessionAssistTargets()).toEqual({ recap: true, suggestion: true });
+    rmSync(dir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+  });
+
+  it('honors explicit target toggles', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oc-assist-targets-off-'));
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ sessionRecapEnabled: false, sessionSuggestionEnabled: false }));
+    vi.stubEnv('OPENCHAMBER_DATA_DIR', dir);
+    vi.resetModules();
+    const { readSessionAssistTargets } = await import('./settings.js');
+    expect(readSessionAssistTargets()).toEqual({ recap: false, suggestion: false });
+    rmSync(dir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+  });
+});

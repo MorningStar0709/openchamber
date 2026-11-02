@@ -1174,7 +1174,7 @@ export const createSettingsHelpers = (dependencies) => {
     if (candidate.usageModelGroups && typeof candidate.usageModelGroups === 'object') {
       const sanitized = {};
       for (const [providerId, config] of Object.entries(candidate.usageModelGroups)) {
-        if (typeof providerId !== 'string') continue;
+        if (typeof providerId !== 'string' || !config || typeof config !== 'object' || Array.isArray(config)) continue;
 
         const providerConfig = {};
 

@@ -66,3 +66,19 @@ describe('provider contract (delta 1)', () => {
     expect(byId.bailian.defaultSttModel).toBe('qwen3.5-omni-flash');
   });
 });
+
+describe('registry integrity (delta 2)', () => {
+  it('freezes the provider table against accidental mutation', async () => {
+    const { SPEECH_PROVIDERS } = await import('./index.js');
+    expect(Object.isFrozen(SPEECH_PROVIDERS)).toBe(true);
+  });
+
+  it('exposes a non-empty default TTS model per provider', async () => {
+    const { SPEECH_PROVIDERS } = await import('./index.js');
+    for (const provider of SPEECH_PROVIDERS) {
+      expect(typeof provider.defaultTtsModel).toBe('string');
+      expect(provider.defaultTtsModel.length).toBeGreaterThan(0);
+    }
+  });
+});
+

@@ -72,7 +72,25 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
   // Server-side TTS endpoint - streams audio from OpenAI TTS API
   app.post('/api/tts/speak', async (req, res) => {
     try {
-      const { text, voice, model = 'gpt-4o-mini-tts', speed = 0.9, instructions, providerId, modelId, apiKey, baseURL, endpointPath } = req.body || {};
+      const { text, voice, speed = 0.9, instructions, providerId, modelId, apiKey, baseURL, endpointPath } = req.body || {};
+      const model = typeof req.body?.model === 'string' && req.body.model.trim() ? req.body.model : undefined;
+
+      console.log('[TTS] Request received:', { voice, model, speed, textLength: text?.length, hasApiKey: !!apiKey, hasBaseURL: !!baseURL });
+
+      if (!text || typeof text !== 'string' || !text.trim()) {
+        return res.status(400).json({ error: 'Text is required' });
+      }
+
+      const { readSpeechProviderId, resolveSpeechProvider } = await import('./providers/index.js');
+      const speechProvider = resolveSpeechProvider(readSpeechProviderId());
+
+      // Without a custom server the default provider is OpenAI's cloud; a
+      // custom one has already been held to this machine by the URL check
+      // below. Non-default providers talk to their vendor's cloud regardless
+      // of a custom URL, so enterprise mode refuses them before URL checks.
+      if (isEnterpriseMode() && speechProvider.id !== 'openai-audio') {
+        return res.status(403).json({ error: ENTERPRISE_MODE_ERROR });
+      }
 
       const normalizedBaseURLResult = normalizeCustomOpenAIBaseURL(baseURL);
       if (normalizedBaseURLResult.error) {
@@ -89,14 +107,7 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
         return res.status(400).json({ error: 'A custom endpoint path needs a custom server URL' });
       }
 
-      console.log('[TTS] Request received:', { voice, model, speed, textLength: text?.length, hasApiKey: !!apiKey, hasBaseURL: !!baseURL });
-
-      if (!text || typeof text !== 'string' || !text.trim()) {
-        return res.status(400).json({ error: 'Text is required' });
-      }
-
-      // Without a custom server this is OpenAI's cloud; a custom one has
-      // already been held to this machine by the URL check above.
+      // Without a custom server the default provider is OpenAI's cloud.
       if (isEnterpriseMode() && !normalizedBaseURL) {
         return res.status(403).json({ error: ENTERPRISE_MODE_ERROR });
       }
@@ -113,6 +124,12 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
       const clientKey = requestKey ?? readVoiceKey(hasCustomBaseURL ? 'openaiCompatible' : 'openai');
       const hasClientKey = Boolean(clientKey);
 
+      if (speechProvider.id !== 'openai-audio' && (!hasCustomBaseURL || !clientKey)) {
+        return res.status(503).json({
+          error: `Speech provider '${speechProvider.id}' requires a custom server URL and an API key in Voice settings.`,
+        });
+      }
+
       if (!hasServerKey && !hasClientKey && !hasCustomBaseURL) {
         return res.status(503).json({ 
           error: 'TTS service not available. Please configure OpenAI in OpenCode, provide an API key, or set a custom server URL in settings.' 
@@ -123,15 +140,6 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
 
       // Historical summarize request fields are intentionally ignored. The
       // model-backed summarization provider is retired.
-
-      const { readSpeechProviderId, resolveSpeechProvider } = await import('./providers/index.js');
-      const speechProvider = resolveSpeechProvider(readSpeechProviderId());
-
-      if (speechProvider.id !== 'openai-audio' && (!hasCustomBaseURL || !clientKey)) {
-        return res.status(503).json({
-          error: `Speech provider '${speechProvider.id}' requires a custom server URL and an API key in Voice settings.`,
-        });
-      }
 
       const result = await speechProvider.synth({
         text: textToSpeak,
@@ -295,6 +303,13 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
         const baseURL = typeof req.headers['x-base-url'] === 'string' ? req.headers['x-base-url'].trim() : '';
         const { readSpeechProviderId, resolveSpeechProvider } = await import('./providers/index.js');
         const speechProvider = resolveSpeechProvider(readSpeechProviderId());
+
+        // Non-default providers send audio to their vendor's cloud, which
+        // enterprise mode never allows; mirror the TTS route's guard.
+        if (isEnterpriseMode() && speechProvider.id !== 'openai-audio') {
+          return res.status(403).json({ error: ENTERPRISE_MODE_ERROR });
+        }
+
         const model = typeof req.headers['x-model'] === 'string' && req.headers['x-model'].trim().length > 0
           ? req.headers['x-model'].trim()
           : speechProvider.defaultSttModel;

@@ -1,30 +1,11 @@
 // Background session assistance. Only live idle events arm generation; there
 // is no backfill. A new turn deletes the assist this process wrote; clients
 // retire any other payload older than the session's `time.idle`.
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import { OpenCode } from '@opencode/client';
-import { readMergedSettingsSync } from '../opencode/settings-files.js';
 import { isString } from '../shared/guards.js';
 import { loadAssistContext, newestContentId } from './context.js';
-import { DEFAULT_IDLE_QUIET_MS } from './settings.js';
+import { DEFAULT_IDLE_QUIET_MS, readSessionAssistTargets } from './settings.js';
 import { buildAssistPrompt, buildAssistSystemPrompt } from './prompt.js';
-
-const OPENCHAMBER_SETTINGS_FILE = path.join(
-  process.env.OPENCHAMBER_DATA_DIR
-    ? path.resolve(process.env.OPENCHAMBER_DATA_DIR)
-    : path.join(os.homedir(), '.config', 'openchamber'),
-  'settings.json',
-);
-
-const getSessionAssistTargets = () => {
-  const settings = readMergedSettingsSync({ fs, path, settingsFilePath: OPENCHAMBER_SETTINGS_FILE });
-  return {
-    recap: settings.sessionRecapEnabled !== false,
-    suggestion: settings.sessionSuggestionEnabled !== false,
-  };
-};
 
 
 const RECAP_CHAR_LIMIT = 320;
@@ -114,7 +95,7 @@ export const createSessionAssistRuntime = ({
   buildOpenCodeUrl,
   getOpenCodeAuthHeaders,
   getSmallModelService,
-  getTargets = getSessionAssistTargets,
+  getTargets = readSessionAssistTargets,
   quietMs = DEFAULT_IDLE_QUIET_MS,
   persistSessionAssist = null,
   // Archive state is OpenChamber's own in v2 (no OpenCode route sets it), so

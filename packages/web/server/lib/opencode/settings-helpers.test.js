@@ -1024,3 +1024,13 @@ describe('settings registry gate', () => {
     expect(helpers.sanitizeSettingsUpdate({ largeTextPasteBehavior: 'maybe', fileEditorKeymap: 'emacs' })).toEqual({});
   });
 });
+
+describe('usageModelGroups hardening (delta 2)', () => {
+  it('skips null or non-object per-provider configs without throwing', () => {
+    const helpers = createTestHelpers();
+    expect(() => helpers.sanitizeSettingsUpdate({ usageModelGroups: { anthropic: null } })).not.toThrow();
+    expect(helpers.sanitizeSettingsUpdate({ usageModelGroups: { anthropic: null } })).toEqual({});
+    expect(helpers.sanitizeSettingsUpdate({ usageModelGroups: { anthropic: 'bad' } })).toEqual({});
+    expect(helpers.sanitizeSettingsUpdate({ usageModelGroups: null })).toEqual({});
+  });
+});

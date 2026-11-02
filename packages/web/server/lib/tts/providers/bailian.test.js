@@ -170,3 +170,64 @@ describe('bailian provider hardening (delta 1)', () => {
     await expect(bailianProvider.transcribe({ apiKey: 'dk-key' })).rejects.toThrow('audio');
   });
 });
+
+describe('delta 2 hardening', () => {
+  it('refuses to follow redirects when downloading the audio result', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).includes('multimodal-generation')) {
+        return new Response(JSON.stringify({ output: { audio: { url: 'https://oss.example.com/a.wav' } } }), { status: 200 });
+      }
+      return new Response(Buffer.from('RIFF-x'), {
+        status: 200,
+        headers: { 'content-type': 'audio/wav' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await bailianProvider.synth({ text: 'x', voice: 'voice', apiKey: 'dk-key' });
+    // First call is the TTS POST; the second is the OSS download.
+    expect(fetchMock.mock.calls[1][1].redirect).toBe('error');
+    vi.unstubAllGlobals();
+  });
+
+  it('wraps network failures with the provider label', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed'); }));
+
+    await expect(bailianProvider.synth({ text: 'x', voice: 'voice', apiKey: 'dk-key' }))
+      .rejects.toThrow(/Bailian TTS/);
+    vi.unstubAllGlobals();
+  });
+
+  it('enforces the size limit when content-length is missing', async () => {
+    const chunk = new Uint8Array(20 * 1024 * 1024);
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      if (String(url).includes('multimodal-generation')) {
+        return new Response(JSON.stringify({ output: { audio: { url: 'https://oss.example.com/a.wav' } } }), { status: 200 });
+      }
+      // A streamed body carries no content-length header.
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(chunk);
+          controller.enqueue(chunk);
+          controller.close();
+        },
+      });
+      return new Response(stream, { status: 200, headers: { 'content-type': 'audio/wav' } });
+    }));
+
+    await expect(bailianProvider.synth({ text: 'x', voice: 'voice', apiKey: 'dk-key' }))
+      .rejects.toThrow(/size limit/i);
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects malformed base64 inline audio', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      output: { audio: { data: 'not!valid!base64!!!' } },
+    }), { status: 200 })));
+
+    await expect(bailianProvider.synth({ text: 'x', voice: 'voice', apiKey: 'dk-key' }))
+      .rejects.toThrow(/audio/);
+    vi.unstubAllGlobals();
+  });
+});
+

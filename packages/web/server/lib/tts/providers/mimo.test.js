@@ -151,3 +151,96 @@ describe('mimo provider hardening (delta 1)', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('delta 2 hardening', () => {
+  it('wraps network failures with the provider label', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('fetch failed'); }));
+
+    await expect(mimoProvider.synth({
+      text: 'x',
+      apiKey: 'tp-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    })).rejects.toThrow(/MiMo TTS/);
+    vi.unstubAllGlobals();
+  });
+
+  it('fails clearly when a success response is not JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('not json', { status: 200 })));
+
+    await expect(mimoProvider.synth({
+      text: 'x',
+      apiKey: 'tp-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    })).rejects.toThrow(/MiMo TTS.*(JSON|json|parse)/);
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps the HTTP status when the gateway returns a JSON error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ error: { message: 'boom' } }),
+      { status: 502 },
+    )));
+
+    await expect(mimoProvider.synth({
+      text: 'x',
+      apiKey: 'tp-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    })).rejects.toThrow(/502/);
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects malformed base64 audio payloads', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { audio: { data: 'not!valid!base64!!!' } } }],
+    }), { status: 200 })));
+
+    await expect(mimoProvider.synth({
+      text: 'x',
+      apiKey: 'tp-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    })).rejects.toThrow(/audio/);
+    vi.unstubAllGlobals();
+  });
+
+  it('honors the audio format reported by the gateway', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { audio: { data: Buffer.from('ID3-x').toString('base64'), format: 'mp3' } } }],
+    }), { status: 200 })));
+
+    const result = await mimoProvider.synth({
+      text: 'x',
+      apiKey: 'tp-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    });
+    expect(result.contentType).toBe('audio/mp3');
+    vi.unstubAllGlobals();
+  });
+
+  it('normalizes array-shaped STT content to text', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: [{ type: 'text', text: '你好' }] } }],
+    }), { status: 200 })));
+
+    const text = await mimoProvider.transcribe({
+      audioBuffer: Buffer.from('fake'),
+      apiKey: 'tp-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    });
+    expect(text).toBe('你好');
+    vi.unstubAllGlobals();
+  });
+
+  it('throws when the STT response carries no usable text', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: '' } }],
+    }), { status: 200 })));
+
+    await expect(mimoProvider.transcribe({
+      audioBuffer: Buffer.from('fake'),
+      apiKey: 'tp-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    })).rejects.toThrow(/transcri/i);
+    vi.unstubAllGlobals();
+  });
+});
+
