@@ -30,6 +30,9 @@ export function assertHttpUrl(value, what) {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error(`${what} must be an http(s) URL (got ${url.protocol}//…).`);
   }
+  if (url.username || url.password) {
+    throw new Error(`${what} must not embed credentials.`);
+  }
   if (url.search) {
     throw new Error(`${what} must not carry a query string.`);
   }
@@ -59,10 +62,19 @@ export function assertAudioBuffer(buffer, what, maxBytes = MAX_SPEECH_AUDIO_BYTE
  * input and oversized results instead of silently returning garbage.
  */
 export function audioBufferFromBase64(data, what, maxBytes = MAX_SPEECH_AUDIO_BYTES) {
-  if (typeof data !== 'string' || !/^[A-Za-z0-9+/=\r\n]+$/.test(data)) {
+  // Bound the encoded form first: base64 inflates 4 chars per 3 bytes, and
+  // decoding a forged oversized payload before checking would allocate it.
+  if (typeof data !== 'string' || data.length > Math.ceil(maxBytes / 3) * 4 + 2) {
+    throw new Error(`${what} audio exceeds the ${maxBytes / (1024 * 1024)}MB size limit.`);
+  }
+  const stripped = data.replace(/[\r\n]/g, '');
+  const malformed = stripped.length % 4 !== 0
+    || !/^[A-Za-z0-9+/]*={0,2}$/.test(stripped)
+    || (stripped.includes('=') && !/^[A-Za-z0-9+/]+={1,2}$/.test(stripped));
+  if (malformed) {
     throw new Error(`${what} returned malformed audio data.`);
   }
-  const buffer = Buffer.from(data, 'base64');
+  const buffer = Buffer.from(stripped, 'base64');
   if (buffer.length === 0) {
     throw new Error(`${what} returned empty audio.`);
   }
@@ -73,12 +85,15 @@ export function audioBufferFromBase64(data, what, maxBytes = MAX_SPEECH_AUDIO_BY
 }
 
 /**
- * Both non-default providers require a caller-supplied API key.
+ * Both non-default providers require a caller-supplied API key. Returns the
+ * trimmed key so callers put the sanitized value on the wire (a pasted env
+ * value carrying whitespace would otherwise break the Authorization header).
  */
 export function requireSpeechCredentials(apiKey, label) {
   if (typeof apiKey !== 'string' || apiKey.trim().length === 0) {
     throw new Error(`${label} requires an API key (Voice settings).`);
   }
+  return apiKey.trim();
 }
 
 /**

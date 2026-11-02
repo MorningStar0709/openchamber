@@ -72,7 +72,7 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
   // Server-side TTS endpoint - streams audio from OpenAI TTS API
   app.post('/api/tts/speak', async (req, res) => {
     try {
-      const { text, voice, speed = 0.9, instructions, providerId, modelId, apiKey, baseURL, endpointPath } = req.body || {};
+      const { text, voice, speed = 0.9, instructions, apiKey, baseURL, endpointPath } = req.body || {};
       const model = typeof req.body?.model === 'string' && req.body.model.trim() ? req.body.model : undefined;
 
       console.log('[TTS] Request received:', { voice, model, speed, textLength: text?.length, hasApiKey: !!apiKey, hasBaseURL: !!baseURL });

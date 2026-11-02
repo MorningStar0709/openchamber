@@ -8,21 +8,25 @@ import { ttsService } from '../service.js';
 import { transcribeAudio } from '../stt.js';
 
 const DEFAULT_TTS_MODEL = 'gpt-4o-mini-tts';
+// STT default stays the historical route value: an OpenRouter-hosted
+// whisper-large-v3 turbo, not an OpenAI transcription model.
+const DEFAULT_STT_MODEL = 'deepdml/faster-whisper-large-v3-turbo-ct2';
 
 /** @public */
 export const openaiAudioProvider = {
   id: 'openai-audio',
   label: 'OpenAI Audio API',
   defaultTtsModel: DEFAULT_TTS_MODEL,
-  // The historical route default; the routes pass no voice for the default
-  // provider, so the OpenAI default stays 'nova' exactly as before.
-  defaultSttModel: 'deepdml/faster-whisper-large-v3-turbo-ct2',
+  defaultSttModel: DEFAULT_STT_MODEL,
 
   async synth(options = {}) {
-    return ttsService.generateSpeechStream({ ...options, voice: options.voice ?? 'nova' });
+    const opts = options ?? {};
+    // 'nova' is the historical route default; routes pass no voice for the
+    // default provider, so the effective default stays exactly as before.
+    return ttsService.generateSpeechStream({ ...opts, voice: opts.voice ?? 'nova' });
   },
 
-  async transcribe(options) {
-    return transcribeAudio(options);
+  async transcribe(options = {}) {
+    return transcribeAudio(options ?? {});
   },
 };

@@ -15,20 +15,34 @@ export function isSessionAssistIdleQuietMs(value) {
     && value >= MIN_IDLE_QUIET_MS && value <= MAX_IDLE_QUIET_MS;
 }
 
-/** Read at every turn end so a settings change applies without a restart. */
-let warnedInvalidSessionAssistQuietMs = false;
-export function readSessionAssistQuietMs() {
-  let settings;
+/**
+ * Read the merged settings document. Contract guard: readMergedSettingsSync
+ * currently swallows read/parse failures and always returns an object, and
+ * getOpenChamberSettingsFilePath() is a pure path join — so the catch arms
+ * are unreachable today. They exist so a future refactor that throws does
+ * not silently crash the turn-end path.
+ */
+function readSettings() {
   try {
-    settings = readMergedSettingsSync({ fs, path, settingsFilePath: getOpenChamberSettingsFilePath() });
+    return readMergedSettingsSync({ fs, path, settingsFilePath: getOpenChamberSettingsFilePath() });
   } catch (error) {
-    console.error('[session-assist] Failed to read settings; keeping the default quiet window.', error);
-    return undefined;
+    console.error('[session-assist] Failed to read settings; session assist keeps its defaults.', error);
+    return null;
   }
+}
+
+// Warn once per distinct rejected value: a repeat of the same invalid value
+// stays quiet, but a *new* misconfiguration must surface in the log.
+let lastWarnedInvalidQuietMs;
+
+/** Read at every turn end so a settings change applies without a restart. */
+export function readSessionAssistQuietMs() {
+  const settings = readSettings();
+  if (!settings) return undefined;
   const value = settings.sessionAssistIdleQuietMs;
   if (isSessionAssistIdleQuietMs(value)) return value;
-  if (value !== undefined && !warnedInvalidSessionAssistQuietMs) {
-    warnedInvalidSessionAssistQuietMs = true;
+  if (value !== undefined && value !== lastWarnedInvalidQuietMs) {
+    lastWarnedInvalidQuietMs = value;
     console.warn(`Ignoring invalid sessionAssistIdleQuietMs value (expected an integer between ${MIN_IDLE_QUIET_MS} and ${MAX_IDLE_QUIET_MS}).`);
   }
   return undefined;
@@ -36,13 +50,8 @@ export function readSessionAssistQuietMs() {
 
 /** Session recap/suggestion toggles; both default to enabled. */
 export function readSessionAssistTargets() {
-  let settings;
-  try {
-    settings = readMergedSettingsSync({ fs, path, settingsFilePath: getOpenChamberSettingsFilePath() });
-  } catch (error) {
-    console.error('[session-assist] Failed to read settings; assuming both assist targets are enabled.', error);
-    return { recap: true, suggestion: true };
-  }
+  const settings = readSettings();
+  if (!settings) return { recap: true, suggestion: true };
   return {
     recap: settings.sessionRecapEnabled !== false,
     suggestion: settings.sessionSuggestionEnabled !== false,

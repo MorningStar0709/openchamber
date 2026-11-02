@@ -1,7 +1,11 @@
 /**
  * Speech provider registry. A provider implements the wire protocol of one
- * speech backend family behind two duck-typed methods:
+ * speech backend family. The full shape is:
  *
+ *   id: string                        — stable registry key ('openai-audio' default)
+ *   label: string                     — display name
+ *   defaultTtsModel: string           — used when the request names no model
+ *   defaultSttModel: string           — used when the request names no model
  *   synth({ text, voice, model, speed, instructions, apiKey, baseURL, endpointPath })
  *     -> { buffer: Buffer, contentType: string }
  *   transcribe({ audioBuffer, mimeType, model, apiKey, baseURL, language, endpointPath })
@@ -25,22 +29,33 @@ import { bailianProvider } from './bailian.js';
 /** @public */
 export const SPEECH_PROVIDERS = Object.freeze([openaiAudioProvider, mimoProvider, bailianProvider]);
 
-// Fail fast at load time on a malformed registry rather than silently
-// dispatching to a half-registered provider at request time.
-const seenProviderIds = new Set();
-for (const provider of SPEECH_PROVIDERS) {
+/** @public */
+export function assertSpeechProvider(provider) {
   if (!provider || typeof provider.id !== 'string' || !provider.id) {
     throw new Error('tts/providers: every provider must export a non-empty string id.');
   }
-  if (seenProviderIds.has(provider.id)) {
-    throw new Error(`tts/providers: duplicate provider id "${provider.id}".`);
+  for (const field of ['defaultTtsModel', 'defaultSttModel']) {
+    if (typeof provider[field] !== 'string' || !provider[field]) {
+      throw new Error(`tts/providers: provider "${provider.id}" must export a non-empty ${field}.`);
+    }
   }
-  seenProviderIds.add(provider.id);
   for (const method of ['synth', 'transcribe']) {
     if (typeof provider[method] !== 'function') {
       throw new Error(`tts/providers: provider "${provider.id}" must implement ${method}().`);
     }
   }
+  return provider;
+}
+
+// Fail fast at load time on a malformed registry rather than silently
+// dispatching to a half-registered provider at request time.
+const seenProviderIds = new Set();
+for (const provider of SPEECH_PROVIDERS) {
+  assertSpeechProvider(provider);
+  if (seenProviderIds.has(provider.id)) {
+    throw new Error(`tts/providers: duplicate provider id "${provider.id}".`);
+  }
+  seenProviderIds.add(provider.id);
 }
 
 const PROVIDERS_BY_ID = new Map(SPEECH_PROVIDERS.map((provider) => [provider.id, provider]));

@@ -33,11 +33,17 @@ async function fetchChecked(url, init, label) {
 }
 
 async function readJson(response, what) {
-  const data = await response.json().catch(() => ({}));
+  // Only non-OK bodies tolerate a parse failure (plain-text error pages); a
+  // successful response that is not JSON is a provider error, not an empty one.
   if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
     throw new Error(data?.message || data?.error?.message || `${what} failed with HTTP ${response.status}`);
   }
-  return data;
+  try {
+    return await response.json();
+  } catch {
+    throw new Error(`${what} returned a non-JSON response.`);
+  }
 }
 
 /** `baseURL` overrides the DashScope origin (e.g. an international endpoint). */
@@ -69,18 +75,25 @@ async function downloadAudio(url) {
   if (Number.isFinite(length) && length > MAX_AUDIO_DOWNLOAD_BYTES) {
     throw new Error(`Bailian audio result exceeds the ${MAX_AUDIO_DOWNLOAD_BYTES / (1024 * 1024)}MB size limit.`);
   }
+  if (!response.body) {
+    throw new Error('Bailian TTS audio download returned an empty body.');
+  }
   // Stream the body so a missing or forged content-length cannot bypass the cap.
   const reader = response.body.getReader();
   const chunks = [];
   let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.length;
-    if (total > MAX_AUDIO_DOWNLOAD_BYTES) {
-      throw new Error(`Bailian audio result exceeds the ${MAX_AUDIO_DOWNLOAD_BYTES / (1024 * 1024)}MB size limit.`);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > MAX_AUDIO_DOWNLOAD_BYTES) {
+        throw new Error(`Bailian audio result exceeds the ${MAX_AUDIO_DOWNLOAD_BYTES / (1024 * 1024)}MB size limit.`);
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } finally {
+    await reader.cancel().catch(() => {});
   }
   const buffer = Buffer.concat(chunks);
   // Only audio content types are served to the client; anything else is
@@ -97,13 +110,13 @@ export const bailianProvider = {
   defaultTtsModel: DEFAULT_TTS_MODEL,
 
   async synth({ text, voice, model = DEFAULT_TTS_MODEL, apiKey, baseURL }) {
-    requireSpeechCredentials(apiKey, 'Bailian TTS');
-    if (!voice) throw new Error('Bailian TTS requires a voice.');
+    const key = requireSpeechCredentials(apiKey, 'Bailian TTS');
+    if (typeof voice !== 'string' || !voice.trim()) throw new Error('Bailian TTS requires a voice.');
     const response = await fetchChecked(ttsUrl(baseURL), {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
+        authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
         model,
@@ -126,15 +139,15 @@ export const bailianProvider = {
   defaultSttModel: DEFAULT_STT_MODEL,
 
   async transcribe({ audioBuffer, mimeType = 'audio/wav', model = DEFAULT_STT_MODEL, apiKey, baseURL = DEFAULT_STT_BASE_URL }) {
-    requireSpeechCredentials(apiKey, 'Bailian STT');
+    const key = requireSpeechCredentials(apiKey, 'Bailian STT');
     assertAudioBuffer(audioBuffer, 'Bailian STT');
     const format = audioFormatOf(mimeType);
-    const dataUri = `data:${mimeType};base64,${audioBuffer.toString('base64')}`;
+    const dataUri = `data:audio/${format};base64,${audioBuffer.toString('base64')}`;
     const response = await fetchChecked(`${assertHttpUrl(baseURL, 'Bailian STT base URL')}/chat/completions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
+        authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
         model,

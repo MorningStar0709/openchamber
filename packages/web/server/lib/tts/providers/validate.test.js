@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { assertHttpUrl, audioFormatOf, requireSpeechCredentials } from './validate.js';
+import { assertHttpUrl, audioBufferFromBase64, audioFormatOf, requireSpeechCredentials } from './validate.js';
 
 describe('assertHttpUrl (delta 2)', () => {
   it('normalizes a trailing slash without corrupting the path', () => {
@@ -38,5 +38,28 @@ describe('audioFormatOf (delta 2)', () => {
 
   it('falls back for malformed subtypes', () => {
     expect(audioFormatOf('audio/../x')).toBe('wav');
+  });
+});
+
+describe('assertHttpUrl (delta 3)', () => {
+  it('rejects URLs carrying embedded credentials', () => {
+    expect(() => assertHttpUrl('https://user:pass@gw.example.com/v1', 'Server URL')).toThrow(/credentials/);
+  });
+});
+
+describe('audioBufferFromBase64 (delta 3)', () => {
+  it('rejects malformed padding', () => {
+    expect(() => audioBufferFromBase64('AAAA=BBB', 'Mimo TTS')).toThrow(/malformed/);
+  });
+  it('rejects encoded payloads above the ceiling before decoding', () => {
+    // base64 inflates ~4 chars per 3 bytes, so 50M chars is safely over.
+    const huge = 'A'.repeat(50 * 1024 * 1024);
+    expect(() => audioBufferFromBase64(huge, 'Mimo TTS')).toThrow(/size limit/);
+  });
+});
+
+describe('requireSpeechCredentials (delta 3)', () => {
+  it('returns the trimmed key for caller use', () => {
+    expect(requireSpeechCredentials('  sk-key  ', 'Mimo')).toBe('sk-key');
   });
 });

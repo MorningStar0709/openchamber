@@ -244,3 +244,26 @@ describe('delta 2 hardening', () => {
   });
 });
 
+describe('mimoProvider (delta 3)', () => {
+  it('falls back to the default voice for empty or blank voice ids', async () => {
+    const bodies = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { audio: { data: 'UklGRg==' } } }] }), { status: 200 });
+    }));
+    await mimoProvider.synth({ text: 'x', voice: '   ', apiKey: 'key', baseURL: 'https://gw.example.com/v1' });
+    expect(bodies[0].audio.voice).toBe('mimo_default');
+    vi.unstubAllGlobals();
+  });
+
+  it('sends the trimmed API key in the Authorization header', async () => {
+    let auth;
+    vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
+      auth = init.headers.authorization;
+      return new Response(JSON.stringify({ choices: [{ message: { audio: { data: 'UklGRg==' } } }] }), { status: 200 });
+    }));
+    await mimoProvider.synth({ text: 'x', voice: 'v', apiKey: '  padded-key  ', baseURL: 'https://gw.example.com/v1' });
+    expect(auth).toBe('Bearer padded-key');
+    vi.unstubAllGlobals();
+  });
+});

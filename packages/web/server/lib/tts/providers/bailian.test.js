@@ -231,3 +231,27 @@ describe('delta 2 hardening', () => {
   });
 });
 
+describe('bailianProvider (delta 3)', () => {
+  it('builds the STT data URI from the sanitized audio subtype', async () => {
+    let uri;
+    vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
+      uri = JSON.parse(init.body).messages[1].content[0].input_audio.data;
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
+    }));
+    await bailianProvider.transcribe({
+      audioBuffer: Buffer.from('RIFF'),
+      mimeType: 'audio/webm;codecs=opus',
+      model: 'm',
+      apiKey: 'k',
+    });
+    expect(uri.startsWith('data:audio/webm;base64,')).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it('labels a missing response body instead of throwing a bare TypeError', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 200 })));
+    await expect(bailianProvider.synth({ text: 'x', voice: 'v', apiKey: 'k' }))
+      .rejects.toThrow(/Bailian TTS/);
+    vi.unstubAllGlobals();
+  });
+});

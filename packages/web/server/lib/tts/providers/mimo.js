@@ -18,14 +18,47 @@ import { assertAudioBuffer, assertHttpUrl, audioBufferFromBase64, audioFormatOf,
 const REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_TTS_MODEL = 'mimo-v2.5-tts';
 const DEFAULT_STT_MODEL = 'mimo-v2.5-asr';
+const DEFAULT_VOICE = 'mimo_default';
+const MAX_ERROR_BODY_CHARS = 64 * 1024;
 
 function chatCompletionsUrl(baseURL) {
   return `${assertHttpUrl(baseURL, 'MiMo base URL')}/chat/completions`;
 }
 
+/** Both MiMo calls need the same credential + custom-URL pair. */
+function requireMimoTarget(apiKey, baseURL, label) {
+  const key = requireSpeechCredentials(apiKey, label);
+  if (!baseURL) throw new Error(`${label} requires a custom server URL.`);
+  return key;
+}
+
+/** A voice id is any non-blank string; blank/non-string values fall back. */
+function normalizeVoice(voice) {
+  return typeof voice === 'string' && voice.trim() ? voice.trim() : undefined;
+}
+
 function summarizeErrorBody(text) {
   const snippet = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
   return snippet ? ` — body: ${snippet}` : '';
+}
+
+/** Read an error body with a cap so a misbehaving gateway cannot make us buffer unbounded HTML. */
+async function readTextCapped(response, maxChars = MAX_ERROR_BODY_CHARS) {
+  if (!response.body) return response.text().catch(() => '');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      if (text.length >= maxChars) break;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return text;
 }
 
 async function postChatCompletions({ baseURL, apiKey, body, label }) {
@@ -44,7 +77,7 @@ async function postChatCompletions({ baseURL, apiKey, body, label }) {
     throw new Error(`${label} request failed: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (!response.ok) {
-    const raw = await response.text().catch(() => '');
+    const raw = await readTextCapped(response).catch(() => '');
     const data = (() => { try { return JSON.parse(raw); } catch { return null; } })();
     const message = data?.error?.message || data?.message;
     throw new Error(message
@@ -65,11 +98,10 @@ export const mimoProvider = {
   defaultTtsModel: DEFAULT_TTS_MODEL,
 
   async synth({ text, voice, model = DEFAULT_TTS_MODEL, apiKey, baseURL }) {
-    requireSpeechCredentials(apiKey, 'MiMo TTS');
-    if (!baseURL) throw new Error('MiMo TTS requires a custom server URL.');
+    const key = requireMimoTarget(apiKey, baseURL, 'MiMo TTS');
     const data = await postChatCompletions({
       baseURL,
-      apiKey,
+      apiKey: key,
       label: 'MiMo TTS',
       body: {
         model,
@@ -77,7 +109,7 @@ export const mimoProvider = {
         modalities: ['text', 'audio'],
         // MiMo speaks the assistant message; an instruction-style assistant
         // message would be read aloud instead of the text (2026-11-02 probe).
-        audio: { voice: voice ?? 'mimo_default', format: 'wav' },
+        audio: { voice: normalizeVoice(voice) ?? DEFAULT_VOICE, format: 'wav' },
       },
     });
     const audio = data?.choices?.[0]?.message?.audio;
@@ -92,12 +124,11 @@ export const mimoProvider = {
   defaultSttModel: DEFAULT_STT_MODEL,
 
   async transcribe({ audioBuffer, mimeType = 'audio/wav', model = DEFAULT_STT_MODEL, apiKey, baseURL }) {
-    requireSpeechCredentials(apiKey, 'MiMo STT');
-    if (!baseURL) throw new Error('MiMo STT requires a custom server URL.');
+    const key = requireMimoTarget(apiKey, baseURL, 'MiMo STT');
     assertAudioBuffer(audioBuffer, 'MiMo STT');
     const data = await postChatCompletions({
       baseURL,
-      apiKey,
+      apiKey: key,
       label: 'MiMo STT',
       body: {
         model,
