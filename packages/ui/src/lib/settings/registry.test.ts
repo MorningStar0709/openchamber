@@ -317,3 +317,22 @@ describe('custom stt endpoint path setting', () => {
     expect(parseSettingsDocument({ sttEndpointPath: `/${'a'.repeat(1024)}` })).toEqual({});
   });
 });
+
+describe('session assist idle quiet window setting', () => {
+  test('is a profile setting that accepts only integers in the bounded range', () => {
+    expect(SETTINGS_REGISTRY.sessionAssistIdleQuietMs.scope).toBe('profile');
+    expect(parseSettingsDocument({ sessionAssistIdleQuietMs: 60_000 })).toEqual({ sessionAssistIdleQuietMs: 60_000 });
+    expect(parseSettingsDocument({ sessionAssistIdleQuietMs: 500 })).toEqual({});
+    expect(parseSettingsDocument({ sessionAssistIdleQuietMs: '60000' })).toEqual({});
+  });
+});
+
+describe('speech provider setting', () => {
+  test('is an instance setting restricted to the known wire-protocol providers', () => {
+    expect(SETTINGS_REGISTRY.speechProvider.scope).toBe('instance');
+    expect(parseSettingsDocument({ speechProvider: 'mimo' })).toEqual({ speechProvider: 'mimo' });
+    expect(parseSettingsDocument({ speechProvider: 'bailian' })).toEqual({ speechProvider: 'bailian' });
+    expect(parseSettingsDocument({ speechProvider: 'openai-audio' })).toEqual({ speechProvider: 'openai-audio' });
+    expect(parseSettingsDocument({ speechProvider: 'nope' })).toEqual({});
+  });
+});

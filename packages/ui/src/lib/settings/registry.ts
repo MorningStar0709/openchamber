@@ -373,6 +373,9 @@ export const SETTINGS_REGISTRY = {
   sttLocalModel: field({ scope: 'instance', parse: parseTrimmedStringUpTo(256), ui: configField('sttLocalModel') }),
   sttLanguage: field({ scope: 'profile', parse: parseTrimmedStringUpTo(64), ui: configField('sttLanguage') }),
   sttCorrectTranscript: field({ scope: 'profile', parse: parseBoolean, ui: configField('sttCorrectTranscript') }),
+  // Server-side only (no UI control): the TTS/STT routes read it per request
+  // and dispatch to the matching wire-protocol provider in lib/tts/providers/.
+  speechProvider: field({ scope: 'instance', parse: parseOneOf(['openai-audio', 'mimo', 'bailian']) }),
 
   // ── Tunnels (instance) ──
   tunnelProvider: field({ scope: 'instance', parse: mapParser(parseNonEmptyTrimmedString, (value) => value.toLowerCase()) }),

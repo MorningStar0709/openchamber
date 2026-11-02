@@ -124,7 +124,16 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
       // Historical summarize request fields are intentionally ignored. The
       // model-backed summarization provider is retired.
 
-      const result = await ttsService.generateSpeechStream({
+      const { readSpeechProviderId, resolveSpeechProvider } = await import('./providers/index.js');
+      const speechProvider = resolveSpeechProvider(readSpeechProviderId());
+
+      if (speechProvider.id !== 'openai-audio' && (!hasCustomBaseURL || !clientKey)) {
+        return res.status(503).json({
+          error: `Speech provider '${speechProvider.id}' requires a custom server URL and an API key in Voice settings.`,
+        });
+      }
+
+      const result = await speechProvider.synth({
         text: textToSpeak,
         voice,
         model,
@@ -282,13 +291,13 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
     express.raw({ type: (req) => (req.headers['content-type'] || '').startsWith('audio/'), limit: '20mb' }),
     async (req, res) => {
       try {
-        const { transcribeAudio } = await import('./stt.js');
-
         const mimeType = (req.headers['content-type'] || 'audio/webm').split(',')[0].trim();
         const baseURL = typeof req.headers['x-base-url'] === 'string' ? req.headers['x-base-url'].trim() : '';
+        const { readSpeechProviderId, resolveSpeechProvider } = await import('./providers/index.js');
+        const speechProvider = resolveSpeechProvider(readSpeechProviderId());
         const model = typeof req.headers['x-model'] === 'string' && req.headers['x-model'].trim().length > 0
           ? req.headers['x-model'].trim()
-          : 'deepdml/faster-whisper-large-v3-turbo-ct2';
+          : (speechProvider.id === 'openai-audio' ? 'deepdml/faster-whisper-large-v3-turbo-ct2' : undefined);
         const language = typeof req.headers['x-language'] === 'string' && req.headers['x-language'].trim().length > 0
           ? req.headers['x-language'].trim()
           : undefined;
@@ -308,6 +317,12 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
           return res.status(400).json({ error: 'X-Base-URL header is required' });
         }
 
+        if (speechProvider.id !== 'openai-audio' && !apiKey) {
+          return res.status(503).json({
+            error: `Speech provider '${speechProvider.id}' requires an API key (Authorization header or voice keys).`,
+          });
+        }
+
         console.log('[STT] Transcribing audio:', {
           bytes: req.body.length,
           mimeType,
@@ -317,7 +332,7 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
           hasApiKey: !!apiKey,
         });
 
-        const transcript = await transcribeAudio({
+        const transcript = await speechProvider.transcribe({
           audioBuffer: req.body,
           mimeType,
           model,

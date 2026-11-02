@@ -286,6 +286,9 @@
     "sttCorrectTranscript": {
       "scope": "profile"
     },
+    "speechProvider": {
+      "scope": "instance"
+    },
     "tunnelProvider": {
       "scope": "instance"
     },

@@ -1277,6 +1277,9 @@ export const createSettingsHelpers = (dependencies) => {
         result.sttProvider = 'local';
       }
     }
+    if (candidate.speechProvider === 'openai-audio' || candidate.speechProvider === 'mimo' || candidate.speechProvider === 'bailian') {
+      result.speechProvider = candidate.speechProvider;
+    }
     if (typeof candidate.sttServerUrl === 'string') {
       const trimmed = candidate.sttServerUrl.trim();
       if (trimmed.length <= STT_SERVER_URL_MAX_LENGTH) {
