@@ -499,4 +499,70 @@ describe('session assist runtime', () => {
     expect(logged).not.toContain('\n');
     vi.unstubAllGlobals();
   });
+
+  describe('configurable quiet window', () => {
+    const records = [
+      { id: 'msg_idle', type: 'idle', outcome: 'succeeded' },
+      { id: 'msg_a', type: 'assistant', content: [{ type: 'text', text: 'All done.' }], finish: 'stop', time: { completed: 2 }, model: { providerID: 'p', id: 'm' } },
+      { id: 'msg_u', type: 'user', text: 'Do the thing' },
+    ];
+    const serveSessions = () => vi.stubGlobal('fetch', vi.fn(async (input) => {
+      const url = new URL(String(input));
+      const match = url.pathname.match(/^\/api\/session\/(ses_\d+)(\/message)?$/);
+      if (!match) throw new Error(`unexpected ${url.pathname}`);
+      const body = match[2]
+        ? { data: records.slice(0, Number(url.searchParams.get('limit'))), cursor: {} }
+        : { data: { id: match[1], location: { directory: '/chat' } } };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    }));
+    const run = (overrides) => {
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const changes = [];
+      const persistSessionAssist = vi.fn(async () => undefined);
+      const { runtime } = makeRuntime({
+        persistSessionAssist,
+        buildOpenCodeUrl: (fetchPath) => `http://opencode.test${fetchPath}`,
+        onPendingChange: (change) => changes.push(change),
+        getSmallModelService: async () => ({
+          describeSmallModel: async () => ({ inputCharBudget: 20_000 }),
+          generateSmallModelText: async () => ({ text: '{"recap":"Did the thing.","suggestion":"Verify it."}' }),
+        }),
+        ...overrides,
+      });
+      return { runtime, changes, persistSessionAssist };
+    };
+
+    it('arms each turn end from the current setting, not only the constructor value', async () => {
+      serveSessions();
+      let windowMs = 60_000;
+      const { runtime, changes, persistSessionAssist } = run({ quietMs: 1, readQuietMs: () => windowMs });
+
+      runtime.processPayload(idle('ses_1'), '/chat');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      // Parked on the long window: no generation yet, and a short constructor
+      // value must not override the configured window.
+      expect(persistSessionAssist).not.toHaveBeenCalled();
+
+      // A settings change applies to the next arm without a restart.
+      windowMs = 5;
+      runtime.processPayload(idle('ses_2'), '/chat');
+      for (let i = 0; i < 40 && !changes.some((change) => change.sessionId === 'ses_2' && change.pending === false); i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(persistSessionAssist).toHaveBeenCalledTimes(1);
+      expect(changes.at(-1)).toEqual({ sessionId: 'ses_2', directory: '/chat', pending: false });
+    });
+
+    it('keeps the constructor default when the setting reader returns nothing', async () => {
+      serveSessions();
+      const { runtime, changes, persistSessionAssist } = run({ quietMs: 1, readQuietMs: () => undefined });
+
+      runtime.processPayload(idle('ses_1'), '/chat');
+      for (let i = 0; i < 40 && !changes.some((change) => change.pending === false); i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(persistSessionAssist).toHaveBeenCalledTimes(1);
+    });
+  });
 });

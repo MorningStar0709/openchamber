@@ -123,6 +123,10 @@ export const createSessionAssistRuntime = ({
   // the enabled fields are worth the Small Model (`{ recap, suggestion }`), or
   // null for "unknown", which keeps every enabled field. See session-work.
   evaluateTurn = null,
+  // Returns the quiet window in ms from the current settings, or null for
+  // "not configured", which keeps `quietMs`. Read at every arm so a change
+  // applies without a restart; see `settings.js` in this directory.
+  readQuietMs = null,
   // `../session-lineage.js`: a known subsession never gets an assist, so its
   // turn end arms nothing and reads nothing.
   lineage = null,
@@ -142,6 +146,10 @@ export const createSessionAssistRuntime = ({
   // Sessions announced as waiting for an assist, keyed to their directory.
   const announced = new Map();
   let stopped = false;
+
+  // The quiet window comes from the current setting at every arm
+  // (`readQuietMs?.() ?? quietMs` in armTimer), so a settings change applies
+  // without a restart; a null/absent reader keeps the constructor default.
 
   // Announces only transitions, after every change to the four maps above.
   const announce = (sessionId, directory = '') => {
@@ -321,7 +329,7 @@ export const createSessionAssistRuntime = ({
       timers.delete(sessionId);
       startGeneration(sessionId, directory, armedAt, allowed);
       announce(sessionId);
-    }, quietMs);
+    }, readQuietMs?.() ?? quietMs);
     timer.unref?.();
     timers.set(sessionId, { timer, armedAt });
     announce(sessionId, directory);

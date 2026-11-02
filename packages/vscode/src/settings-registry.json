@@ -729,6 +729,9 @@
         "mobile"
       ]
     },
+    "sessionAssistIdleQuietMs": {
+      "scope": "profile"
+    },
     "sessionGoalEnabled": {
       "scope": "profile"
     },

@@ -662,6 +662,9 @@ export const createSettingsHelpers = (dependencies) => {
     if (typeof candidate.sessionReviewOfferEnabled === 'boolean') {
       result.sessionReviewOfferEnabled = candidate.sessionReviewOfferEnabled;
     }
+    if (Number.isInteger(candidate.sessionAssistIdleQuietMs) && candidate.sessionAssistIdleQuietMs >= 1000 && candidate.sessionAssistIdleQuietMs <= 3600000) {
+      result.sessionAssistIdleQuietMs = candidate.sessionAssistIdleQuietMs;
+    }
     if (typeof candidate.sessionGoalEnabled === 'boolean') {
       result.sessionGoalEnabled = candidate.sessionGoalEnabled;
     }
