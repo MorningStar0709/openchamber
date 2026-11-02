@@ -60,3 +60,32 @@ describe('speech provider dispatch in routes', () => {
     expect(response.status).not.toBe(503);
   });
 });
+
+describe('voice passthrough (delta 1)', () => {
+  it('lets the mimo provider pick its default voice when the client sends none', async () => {
+    process.env.OPENCHAMBER_DATA_DIR = mkdtempSync(join(tmpdir(), 'oc-tts-route-voice-'));
+    writeFileSync(join(process.env.OPENCHAMBER_DATA_DIR, 'settings.json'), JSON.stringify({ speechProvider: 'mimo' }));
+
+    const bodies = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({
+        choices: [{ message: { audio: { data: Buffer.from('RIFF-x').toString('base64') } } }],
+      }), { status: 200 });
+    }));
+
+    const app = express();
+    app.use(express.json());
+    registerTtsRoutes(app, {});
+
+    const response = await request(app)
+      .post('/api/tts/speak')
+      .send({ text: '你好', apiKey: 'tp-key', baseURL: 'https://token-plan-cn.xiaomimimo.com/v1' });
+
+    expect(response.status).toBe(200);
+    expect(bodies[0].audio.voice).toBe('mimo_default');
+    vi.unstubAllGlobals();
+    rmSync(process.env.OPENCHAMBER_DATA_DIR, { recursive: true, force: true });
+    delete process.env.OPENCHAMBER_DATA_DIR;
+  });
+});

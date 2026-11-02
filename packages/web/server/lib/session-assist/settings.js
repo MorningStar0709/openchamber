@@ -1,8 +1,7 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 
-import { readMergedSettingsSync } from '../opencode/settings-files.js';
+import { getOpenChamberSettingsFilePath, readMergedSettingsSync } from '../opencode/settings-files.js';
 
 /** Default quiet window; mirrors IDLE_QUIET_MS in runtime.js. */
 export const DEFAULT_IDLE_QUIET_MS = 60_000;
@@ -16,17 +15,18 @@ export function isSessionAssistIdleQuietMs(value) {
     && value >= MIN_IDLE_QUIET_MS && value <= MAX_IDLE_QUIET_MS;
 }
 
-const OPENCHAMBER_SETTINGS_FILE = path.join(
-  process.env.OPENCHAMBER_DATA_DIR
-    ? path.resolve(process.env.OPENCHAMBER_DATA_DIR)
-    : path.join(os.homedir(), '.config', 'openchamber'),
-  'settings.json',
-);
-
 /** Read at every turn end so a settings change applies without a restart. */
 export function readSessionAssistQuietMs() {
-  const settings = readMergedSettingsSync({ fs, path, settingsFilePath: OPENCHAMBER_SETTINGS_FILE });
-  return isSessionAssistIdleQuietMs(settings.sessionAssistIdleQuietMs)
-    ? settings.sessionAssistIdleQuietMs
-    : undefined;
+  let settings;
+  try {
+    settings = readMergedSettingsSync({ fs, path, settingsFilePath: getOpenChamberSettingsFilePath() });
+  } catch {
+    return undefined;
+  }
+  const value = settings.sessionAssistIdleQuietMs;
+  if (isSessionAssistIdleQuietMs(value)) return value;
+  if (value !== undefined) {
+    console.warn(`Ignoring invalid sessionAssistIdleQuietMs value (expected an integer between ${MIN_IDLE_QUIET_MS} and ${MAX_IDLE_QUIET_MS}).`);
+  }
+  return undefined;
 }

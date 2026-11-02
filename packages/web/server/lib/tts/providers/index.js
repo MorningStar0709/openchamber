@@ -14,10 +14,9 @@
  */
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
-import { readMergedSettingsSync } from '../../opencode/settings-files.js';
+import { getOpenChamberSettingsFilePath, readMergedSettingsSync } from '../../opencode/settings-files.js';
 
 import { openaiAudioProvider } from './openai-audio.js';
 import { mimoProvider } from './mimo.js';
@@ -25,6 +24,19 @@ import { bailianProvider } from './bailian.js';
 
 /** @public */
 export const SPEECH_PROVIDERS = [openaiAudioProvider, mimoProvider, bailianProvider];
+
+// Fail fast at load time on a malformed registry rather than silently
+// dispatching to a half-registered provider at request time.
+for (const provider of SPEECH_PROVIDERS) {
+  if (!provider || typeof provider.id !== 'string' || !provider.id) {
+    throw new Error('tts/providers: every provider must export a non-empty string id.');
+  }
+  for (const method of ['synth', 'transcribe']) {
+    if (typeof provider[method] !== 'function') {
+      throw new Error(`tts/providers: provider "${provider.id}" must implement ${method}().`);
+    }
+  }
+}
 
 const PROVIDERS_BY_ID = new Map(SPEECH_PROVIDERS.map((provider) => [provider.id, provider]));
 export const DEFAULT_SPEECH_PROVIDER_ID = openaiAudioProvider.id;
@@ -34,16 +46,11 @@ export function resolveSpeechProvider(id) {
   return PROVIDERS_BY_ID.get(id) ?? openaiAudioProvider;
 }
 
-const OPENCHAMBER_SETTINGS_FILE = path.join(
-  process.env.OPENCHAMBER_DATA_DIR
-    ? path.resolve(process.env.OPENCHAMBER_DATA_DIR)
-    : path.join(os.homedir(), '.config', 'openchamber'),
-  'settings.json',
-);
-
 /** @public */
 export function readSpeechProviderId() {
-  const settings = readMergedSettingsSync({ fs, path, settingsFilePath: OPENCHAMBER_SETTINGS_FILE });
+  // Resolved at call time: OPENCHAMBER_DATA_DIR may be re-pointed between
+  // module load and use (tests do), and a load-bound path would read stale.
+  const settings = readMergedSettingsSync({ fs, path, settingsFilePath: getOpenChamberSettingsFilePath() });
   return PROVIDERS_BY_ID.has(settings.speechProvider)
     ? settings.speechProvider
     : DEFAULT_SPEECH_PROVIDER_ID;

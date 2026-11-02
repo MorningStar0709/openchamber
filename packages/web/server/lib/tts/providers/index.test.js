@@ -56,3 +56,13 @@ describe('readSpeechProviderId', () => {
     expect(malformed.readSpeechProviderId()).toBe('openai-audio');
   });
 });
+
+describe('provider contract (delta 1)', () => {
+  it('exposes a default STT model per provider', async () => {
+    const { SPEECH_PROVIDERS } = await import('./index.js');
+    const byId = Object.fromEntries(SPEECH_PROVIDERS.map((provider) => [provider.id, provider]));
+    expect(byId['openai-audio'].defaultSttModel).toBe('deepdml/faster-whisper-large-v3-turbo-ct2');
+    expect(byId.mimo.defaultSttModel).toBe('mimo-v2.5-asr');
+    expect(byId.bailian.defaultSttModel).toBe('qwen3.5-omni-flash');
+  });
+});

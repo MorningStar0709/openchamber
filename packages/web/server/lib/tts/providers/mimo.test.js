@@ -82,3 +82,72 @@ describe('mimo speech provider', () => {
       .rejects.toThrow('API key');
   });
 });
+
+describe('mimo provider hardening (delta 1)', () => {
+  it('defaults the voice to mimo_default when the client sends none', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { audio: { data: Buffer.from('RIFF-x').toString('base64') } } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await mimoProvider.synth({
+      text: 'x',
+      apiKey: 'tp-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.audio.voice).toBe('mimo_default');
+    vi.unstubAllGlobals();
+  });
+
+  it('declares the audio format matching the incoming mimeType', async () => {
+    const audio = Buffer.from('fake-webm-bytes');
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: 'ok' } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await mimoProvider.transcribe({
+      audioBuffer: audio,
+      mimeType: 'audio/webm;codecs=opus',
+      apiKey: 'tp-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.messages[0].content[0].input_audio.format).toBe('webm');
+    vi.unstubAllGlobals();
+  });
+
+  it('rejects a missing audio buffer with a clear message', async () => {
+    await expect(mimoProvider.transcribe({
+      apiKey: 'tp-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    })).rejects.toThrow('audio');
+  });
+
+  it('rejects non-http(s) base URLs before fetching', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(mimoProvider.synth({
+      text: 'x',
+      apiKey: 'tp-key',
+      baseURL: 'ftp://example.com/v1',
+    })).rejects.toThrow(/https?/);
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('includes an upstream snippet when the gateway answers non-JSON errors', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>bad gateway</html>', { status: 502 })));
+
+    await expect(mimoProvider.synth({
+      text: 'x',
+      apiKey: 'tp-key',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+    })).rejects.toThrow(/HTTP 502/);
+    vi.unstubAllGlobals();
+  });
+});

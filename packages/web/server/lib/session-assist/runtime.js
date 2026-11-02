@@ -8,6 +8,7 @@ import { OpenCode } from '@opencode/client';
 import { readMergedSettingsSync } from '../opencode/settings-files.js';
 import { isString } from '../shared/guards.js';
 import { loadAssistContext, newestContentId } from './context.js';
+import { DEFAULT_IDLE_QUIET_MS } from './settings.js';
 import { buildAssistPrompt, buildAssistSystemPrompt } from './prompt.js';
 
 const OPENCHAMBER_SETTINGS_FILE = path.join(
@@ -25,7 +26,7 @@ const getSessionAssistTargets = () => {
   };
 };
 
-const IDLE_QUIET_MS = 60_000;
+
 const RECAP_CHAR_LIMIT = 320;
 const SUGGESTION_CHAR_LIMIT = 500;
 const FETCH_TIMEOUT_MS = 5_000;
@@ -114,7 +115,7 @@ export const createSessionAssistRuntime = ({
   getOpenCodeAuthHeaders,
   getSmallModelService,
   getTargets = getSessionAssistTargets,
-  quietMs = IDLE_QUIET_MS,
+  quietMs = DEFAULT_IDLE_QUIET_MS,
   persistSessionAssist = null,
   // Archive state is OpenChamber's own in v2 (no OpenCode route sets it), so
   // the runtime asks rather than reading `time.archived` off the record.

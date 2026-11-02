@@ -55,11 +55,11 @@ This module provides server-side Text-to-Speech services using OpenAI's TTS API.
 Returns boolean indicating whether OpenAI API key is configured (checks environment variable `OPENAI_API_KEY` or OpenCode auth file).
 
 ### `generateSpeechStream(options)`
-Generates speech and returns as a web stream for direct streaming to clients.
+Generates speech and returns the audio buffered in memory for the route to send.
 - Options: `text` (required), `voice`, `model`, `speed`, `instructions`, `apiKey`, `baseURL`, `endpointPath`.
 - `endpointPath` is only accepted together with a custom `baseURL`; without one the call throws before any request. An empty value leaves the SDK's `/audio/speech` untouched, so default behavior does not pass through the wrapper at all.
 - Upstream `/v1/audio/speech` requests always carry `response_format: 'mp3'` (the documented default; strict servers such as OpenRouter reject requests without it). With a custom baseURL the request omits `instructions` because compatible servers do not universally support it.
-- Returns: `{ stream: ReadableStream, contentType: string }` — `contentType` is the upstream response's `Content-Type` header, falling back to `'audio/mpeg'` when the server omits it.
+- Returns: `{ buffer: Buffer, contentType: string }` — `contentType` is the upstream response's `Content-Type` header, falling back to `'audio/mpeg'` when the server omits it.
 - Throws: Error if API key not configured or text is empty.
 
 ### `generateSpeechBuffer(options)`
@@ -85,7 +85,7 @@ Returns sanitized string with markdown, URLs, file paths, and special characters
 
 ### `generateSpeechStream`
 Returns object with:
-- `stream`: ReadableStream of MP3 audio data.
+- `buffer`: Buffer of MP3 audio data.
 - `contentType`: the upstream response's `Content-Type` header, falling back to `'audio/mpeg'` when the server omits it.
 
 ### `generateSpeechBuffer`
@@ -148,7 +148,7 @@ The server-side TTS approach bypasses mobile Safari's audio context restrictions
 ### Manual verification
 1. Configure OpenAI API key via environment variable or OpenCode settings.
 2. Test `ttsService.isAvailable()` returns true.
-3. Call `ttsService.generateSpeechStream({ text: 'Hello world' })` and verify stream is returned.
+3. Call `ttsService.generateSpeechStream({ text: 'Hello world' })` and verify { buffer, contentType } is returned.
 4. Call `ttsService.generateSpeechBuffer({ text: 'Hello world' })` and verify Buffer is returned.
 5. Test `summarizeText` with text above and below threshold.
 6. Test `sanitizeForTTS` with markdown, URLs, and code blocks.

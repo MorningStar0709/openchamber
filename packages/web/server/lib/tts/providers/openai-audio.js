@@ -11,9 +11,12 @@ import { transcribeAudio } from '../stt.js';
 export const openaiAudioProvider = {
   id: 'openai-audio',
   label: 'OpenAI Audio API',
+  // The historical route default; the routes pass no voice for the default
+  // provider, so the OpenAI default stays 'nova' exactly as before.
+  defaultSttModel: 'deepdml/faster-whisper-large-v3-turbo-ct2',
 
   async synth(options) {
-    return ttsService.generateSpeechStream(options);
+    return ttsService.generateSpeechStream({ ...options, voice: options.voice ?? 'nova' });
   },
 
   async transcribe(options) {

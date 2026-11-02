@@ -324,6 +324,10 @@ describe('session assist idle quiet window setting', () => {
     expect(parseSettingsDocument({ sessionAssistIdleQuietMs: 60_000 })).toEqual({ sessionAssistIdleQuietMs: 60_000 });
     expect(parseSettingsDocument({ sessionAssistIdleQuietMs: 500 })).toEqual({});
     expect(parseSettingsDocument({ sessionAssistIdleQuietMs: '60000' })).toEqual({});
+    expect(parseSettingsDocument({ sessionAssistIdleQuietMs: 999 })).toEqual({});
+    expect(parseSettingsDocument({ sessionAssistIdleQuietMs: 3_600_001 })).toEqual({});
+    expect(parseSettingsDocument({ sessionAssistIdleQuietMs: 1_000 })).toEqual({ sessionAssistIdleQuietMs: 1_000 });
+    expect(parseSettingsDocument({ sessionAssistIdleQuietMs: 3_600_000 })).toEqual({ sessionAssistIdleQuietMs: 3_600_000 });
   });
 });
 

@@ -8,6 +8,8 @@
 // The VS Code extension host writes the same two files with the same shape
 // (`packages/vscode/src/settings-files.ts`); keep the format changes in sync.
 import { createRequire } from 'node:module';
+import os from 'node:os';
+import nodePath from 'node:path';
 
 const registry = createRequire(import.meta.url)('./settings-registry.json');
 
@@ -40,6 +42,21 @@ export const settingsSurfaceOf = (req) => (
 );
 
 export const preferencesFilePathFor = (settingsFilePath, path) => path.join(path.dirname(settingsFilePath), PREFERENCES_FILE_NAME);
+
+/**
+ * Resolve the settings.json path. Evaluated at call time, not module load:
+ * tests (and embedders that re-point OPENCHAMBER_DATA_DIR) change the env
+ * between import and use, and a path bound at load would silently read the
+ * wrong file.
+ */
+export function getOpenChamberSettingsFilePath() {
+  return nodePath.join(
+    process.env.OPENCHAMBER_DATA_DIR
+      ? nodePath.resolve(process.env.OPENCHAMBER_DATA_DIR)
+      : nodePath.join(os.homedir(), '.config', 'openchamber'),
+    'settings.json',
+  );
+}
 
 const isPlainObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 

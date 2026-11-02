@@ -72,7 +72,7 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
   // Server-side TTS endpoint - streams audio from OpenAI TTS API
   app.post('/api/tts/speak', async (req, res) => {
     try {
-      const { text, voice = 'nova', model = 'gpt-4o-mini-tts', speed = 0.9, instructions, providerId, modelId, apiKey, baseURL, endpointPath } = req.body || {};
+      const { text, voice, model = 'gpt-4o-mini-tts', speed = 0.9, instructions, providerId, modelId, apiKey, baseURL, endpointPath } = req.body || {};
 
       const normalizedBaseURLResult = normalizeCustomOpenAIBaseURL(baseURL);
       if (normalizedBaseURLResult.error) {
@@ -297,7 +297,7 @@ export function registerTtsRoutes(app, { sayTTSCapability }) {
         const speechProvider = resolveSpeechProvider(readSpeechProviderId());
         const model = typeof req.headers['x-model'] === 'string' && req.headers['x-model'].trim().length > 0
           ? req.headers['x-model'].trim()
-          : (speechProvider.id === 'openai-audio' ? 'deepdml/faster-whisper-large-v3-turbo-ct2' : undefined);
+          : speechProvider.defaultSttModel;
         const language = typeof req.headers['x-language'] === 'string' && req.headers['x-language'].trim().length > 0
           ? req.headers['x-language'].trim()
           : undefined;

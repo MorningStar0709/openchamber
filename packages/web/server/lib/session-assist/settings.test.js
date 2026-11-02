@@ -55,3 +55,31 @@ describe('readSessionAssistQuietMs', () => {
     expect(malformed.readSessionAssistQuietMs()).toBeUndefined();
   });
 });
+
+describe('readSessionAssistQuietMs degradation', () => {
+  it('degrades to undefined when the settings file is corrupt JSON', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oc-assist-quiet-corrupt-'));
+    writeFileSync(join(dir, 'settings.json'), '{not valid json');
+    vi.stubEnv('OPENCHAMBER_DATA_DIR', dir);
+    vi.resetModules();
+    const { readSessionAssistQuietMs: read } = await import('./settings.js');
+    expect(() => read()).not.toThrow();
+    expect(read()).toBeUndefined();
+    rmSync(dir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+  });
+
+  it('warns when the stored value is out of range', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oc-assist-quiet-invalid-'));
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ sessionAssistIdleQuietMs: 500 }));
+    vi.stubEnv('OPENCHAMBER_DATA_DIR', dir);
+    vi.resetModules();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { readSessionAssistQuietMs: read } = await import('./settings.js');
+    expect(read()).toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+  });
+});

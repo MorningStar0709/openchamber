@@ -13,13 +13,21 @@
  *   transcription as plain message content; no instruction message needed.
  */
 
+import { assertAudioBuffer, assertHttpUrl, audioFormatOf, requireSpeechCredentials } from './validate.js';
+
 const REQUEST_TIMEOUT_MS = 120_000;
+const DEFAULT_STT_MODEL = 'mimo-v2.5-asr';
 
 function chatCompletionsUrl(baseURL) {
-  return `${String(baseURL).replace(/\/+$/, '')}/chat/completions`;
+  return `${assertHttpUrl(baseURL, 'MiMo base URL')}/chat/completions`;
 }
 
-async function postChatCompletions({ baseURL, apiKey, body }) {
+function summarizeErrorBody(text) {
+  const snippet = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  return snippet ? ` — body: ${snippet}` : '';
+}
+
+async function postChatCompletions({ baseURL, apiKey, body, label }) {
   const response = await fetch(chatCompletionsUrl(baseURL), {
     method: 'POST',
     headers: {
@@ -29,11 +37,13 @@ async function postChatCompletions({ baseURL, apiKey, body }) {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
-  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.error?.message || `MiMo request failed with HTTP ${response.status}`);
+    const raw = await response.text().catch(() => '');
+    const data = (() => { try { return JSON.parse(raw); } catch { return null; } })();
+    const message = data?.error?.message || data?.message;
+    throw new Error(message || `${label} failed with HTTP ${response.status}${summarizeErrorBody(raw)}`);
   }
-  return data;
+  return response.json();
 }
 
 /** @public */
@@ -42,16 +52,19 @@ export const mimoProvider = {
   label: 'MiMo (Qwen-Omni chat/completions)',
 
   async synth({ text, voice, model = 'mimo-v2.5-tts', apiKey, baseURL }) {
-    if (!apiKey) throw new Error('MiMo TTS requires an API key (Voice settings).');
+    requireSpeechCredentials(apiKey, 'MiMo TTS');
     if (!baseURL) throw new Error('MiMo TTS requires a custom server URL.');
     const data = await postChatCompletions({
       baseURL,
       apiKey,
+      label: 'MiMo TTS',
       body: {
         model,
         messages: [{ role: 'assistant', content: text }],
         modalities: ['text', 'audio'],
-        audio: { ...(voice ? { voice } : {}), format: 'wav' },
+        // MiMo speaks the assistant message; an instruction-style assistant
+        // message would be read aloud instead of the text (2026-11-02 probe).
+        audio: { voice: voice ?? 'mimo_default', format: 'wav' },
       },
     });
     const audioData = data?.choices?.[0]?.message?.audio?.data;
@@ -62,17 +75,21 @@ export const mimoProvider = {
     };
   },
 
-  async transcribe({ audioBuffer, model = 'mimo-v2.5-asr', apiKey, baseURL }) {
-    if (!apiKey) throw new Error('MiMo STT requires an API key (Voice settings).');
+  defaultSttModel: DEFAULT_STT_MODEL,
+
+  async transcribe({ audioBuffer, mimeType = 'audio/wav', model = DEFAULT_STT_MODEL, apiKey, baseURL }) {
+    requireSpeechCredentials(apiKey, 'MiMo STT');
     if (!baseURL) throw new Error('MiMo STT requires a custom server URL.');
+    assertAudioBuffer(audioBuffer, 'MiMo STT');
     const data = await postChatCompletions({
       baseURL,
       apiKey,
+      label: 'MiMo STT',
       body: {
         model,
         messages: [{
           role: 'user',
-          content: [{ type: 'input_audio', input_audio: { data: audioBuffer.toString('base64'), format: 'wav' } }],
+          content: [{ type: 'input_audio', input_audio: { data: audioBuffer.toString('base64'), format: audioFormatOf(mimeType) } }],
         }],
         modalities: ['audio', 'text'],
       },
