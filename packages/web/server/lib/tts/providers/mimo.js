@@ -44,7 +44,10 @@ function summarizeErrorBody(text) {
 
 /** Read an error body with a cap so a misbehaving gateway cannot make us buffer unbounded HTML. */
 async function readTextCapped(response, maxChars = MAX_ERROR_BODY_CHARS) {
-  if (!response.body) return response.text().catch(() => '');
+  if (!response.body) {
+    // No streaming body: bound the buffered read as well.
+    return (await response.text().catch(() => '')).slice(0, maxChars);
+  }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let text = '';
@@ -53,7 +56,10 @@ async function readTextCapped(response, maxChars = MAX_ERROR_BODY_CHARS) {
       const { done, value } = await reader.read();
       if (done) break;
       text += decoder.decode(value, { stream: true });
-      if (text.length >= maxChars) break;
+      if (text.length >= maxChars) {
+        text = text.slice(0, maxChars);
+        break;
+      }
     }
   } finally {
     await reader.cancel().catch(() => {});
@@ -62,9 +68,12 @@ async function readTextCapped(response, maxChars = MAX_ERROR_BODY_CHARS) {
 }
 
 async function postChatCompletions({ baseURL, apiKey, body, label }) {
+  // Validate configuration before entering the network try/catch: a bad scheme
+  // or embedded credential is a config error, not a "request failed" one.
+  const url = chatCompletionsUrl(baseURL);
   let response;
   try {
-    response = await fetch(chatCompletionsUrl(baseURL), {
+    response = await fetch(url, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

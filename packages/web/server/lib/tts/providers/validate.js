@@ -40,7 +40,7 @@ export function assertHttpUrl(value, what) {
     throw new Error(`${what} must not carry a fragment.`);
   }
   const normalized = `${url.origin}${url.pathname}`.replace(/\/+$/, '');
-  return normalized || url.origin;
+  return normalized;
 }
 
 /**
@@ -62,15 +62,19 @@ export function assertAudioBuffer(buffer, what, maxBytes = MAX_SPEECH_AUDIO_BYTE
  * input and oversized results instead of silently returning garbage.
  */
 export function audioBufferFromBase64(data, what, maxBytes = MAX_SPEECH_AUDIO_BYTES) {
+  if (typeof data !== 'string') {
+    throw new Error(`${what} returned malformed audio data.`);
+  }
+  // Strip transport line wrapping before measuring: the ceiling guards the
+  // decoded allocation, and CRLF-wrapped base64 must not count against it.
+  const stripped = data.replace(/[\r\n]/g, '');
   // Bound the encoded form first: base64 inflates 4 chars per 3 bytes, and
   // decoding a forged oversized payload before checking would allocate it.
-  if (typeof data !== 'string' || data.length > Math.ceil(maxBytes / 3) * 4 + 2) {
+  if (stripped.length > Math.ceil(maxBytes / 3) * 4 + 2) {
     throw new Error(`${what} audio exceeds the ${maxBytes / (1024 * 1024)}MB size limit.`);
   }
-  const stripped = data.replace(/[\r\n]/g, '');
   const malformed = stripped.length % 4 !== 0
-    || !/^[A-Za-z0-9+/]*={0,2}$/.test(stripped)
-    || (stripped.includes('=') && !/^[A-Za-z0-9+/]+={1,2}$/.test(stripped));
+    || !/^[A-Za-z0-9+/]*={0,2}$/.test(stripped);
   if (malformed) {
     throw new Error(`${what} returned malformed audio data.`);
   }
@@ -99,12 +103,21 @@ export function requireSpeechCredentials(apiKey, label) {
 /**
  * Derive the wire-format audio subtype from a MIME type, stripping any
  * `;codecs=…` parameters, e.g. `audio/webm;codecs=opus` -> `webm`.
- * Anything outside a conservative token alphabet falls back to `fallback`.
+ * Well-known MIME aliases map to the tokens the providers expect on the wire
+ * (`audio/mpeg` -> `mp3`, `audio/x-wav` -> `wav`); anything outside a
+ * conservative token alphabet falls back to `fallback`.
  */
+const AUDIO_FORMAT_ALIASES = {
+  mpeg: 'mp3',
+  'x-wav': 'wav',
+};
+
 export function audioFormatOf(mimeType, fallback = 'wav') {
   if (typeof mimeType !== 'string') return fallback;
   const match = /^audio\/([a-z0-9][a-z0-9.+-]*)/i.exec(mimeType.trim());
-  return match ? match[1].toLowerCase() : fallback;
+  if (!match) return fallback;
+  const subtype = match[1].toLowerCase();
+  return AUDIO_FORMAT_ALIASES[subtype] ?? subtype;
 }
 
 /** Reduce an Omni-style chat message content (string | content-block[]) to text. */
@@ -114,7 +127,7 @@ export function contentTextOf(content) {
     return content
       .filter((block) => block && block.type === 'text' && typeof block.text === 'string')
       .map((block) => block.text)
-      .join('');
+      .join(' ');
   }
   return '';
 }

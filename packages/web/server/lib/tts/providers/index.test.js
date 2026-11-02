@@ -85,7 +85,7 @@ describe('registry integrity (delta 2)', () => {
 describe('provider contract (delta 3)', () => {
   it('rejects providers without defaultTtsModel at load time', async () => {
     const mod = await import('./index.js');
-    expect(() => mod.assertSpeechProvider({ id: 'x', synth: async () => ({}), transcribe: async () => '' }))
+    expect(() => mod.assertSpeechProvider({ id: 'x', label: 'X', synth: async () => ({}), transcribe: async () => '' }))
       .toThrow(/defaultTtsModel/);
   });
 });

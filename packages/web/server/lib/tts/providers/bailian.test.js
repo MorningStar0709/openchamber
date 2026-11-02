@@ -127,7 +127,7 @@ describe('bailian provider hardening (delta 1)', () => {
     vi.unstubAllGlobals();
   });
 
-  it('serves only audio content types from the OSS download', async () => {
+  it('rejects textual OSS bodies instead of passing them off as audio', async () => {
     const fetchMock = vi.fn()
       .mockImplementationOnce(async () => okTts())
       .mockImplementationOnce(async () => new Response('<html>nope</html>', {
@@ -136,8 +136,35 @@ describe('bailian provider hardening (delta 1)', () => {
       }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await bailianProvider.synth({ text: 'x', voice: 'Cherry', apiKey: 'dk-key' });
-    expect(result.contentType).toBe('audio/wav');
+    await expect(bailianProvider.synth({ text: 'x', voice: 'Cherry', apiKey: 'dk-key' }))
+      .rejects.toThrow(/non-audio/);
+    vi.unstubAllGlobals();
+  });
+
+  it('enforces https for the TTS endpoint', async () => {
+    await expect(bailianProvider.synth({ text: 'x', voice: 'v', apiKey: 'k', baseURL: 'http://dashscope.aliyuncs.com' }))
+      .rejects.toThrow(/https/);
+  });
+
+  it('derives the TTS endpoint from the base URL origin, so one setting serves both TTS and STT', async () => {
+    const urls = [];
+    vi.stubGlobal('fetch', vi.fn(async (u) => {
+      const url = String(u);
+      urls.push(url);
+      if (url.endsWith('.wav')) {
+        return new Response(Buffer.from('UklGRgAAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA=', 'base64'), { status: 200, headers: { 'content-type': 'audio/wav' } });
+      }
+      return new Response(JSON.stringify({
+        output: { audio: { url: 'https://oss.example/audio.wav' } },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }));
+    await bailianProvider.synth({
+      text: 'x',
+      voice: 'v',
+      apiKey: 'k',
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    });
+    expect(urls[0]).toBe('https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation');
     vi.unstubAllGlobals();
   });
 

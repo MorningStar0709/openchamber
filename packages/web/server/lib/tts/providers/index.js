@@ -34,6 +34,9 @@ export function assertSpeechProvider(provider) {
   if (!provider || typeof provider.id !== 'string' || !provider.id) {
     throw new Error('tts/providers: every provider must export a non-empty string id.');
   }
+  if (typeof provider.label !== 'string' || !provider.label) {
+    throw new Error(`tts/providers: provider "${provider.id}" must export a non-empty label.`);
+  }
   for (const field of ['defaultTtsModel', 'defaultSttModel']) {
     if (typeof provider[field] !== 'string' || !provider[field]) {
       throw new Error(`tts/providers: provider "${provider.id}" must export a non-empty ${field}.`);
@@ -63,7 +66,7 @@ export const DEFAULT_SPEECH_PROVIDER_ID = openaiAudioProvider.id;
 
 /** @public */
 export function resolveSpeechProvider(id) {
-  return PROVIDERS_BY_ID.get(id) ?? openaiAudioProvider;
+  return PROVIDERS_BY_ID.get(id) ?? PROVIDERS_BY_ID.get(DEFAULT_SPEECH_PROVIDER_ID);
 }
 
 /** @public */

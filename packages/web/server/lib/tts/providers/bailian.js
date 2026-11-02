@@ -12,7 +12,7 @@
  *   model answers the audio conversationally instead of transcribing it.
  */
 
-import { assertAudioBuffer, assertHttpUrl, audioBufferFromBase64, audioFormatOf, contentTextOf, requireSpeechCredentials } from './validate.js';
+import { assertAudioBuffer, assertHttpUrl, audioBufferFromBase64, audioFormatOf, contentTextOf, MAX_SPEECH_AUDIO_BYTES, requireSpeechCredentials } from './validate.js';
 
 const TTS_PATH = '/api/v1/services/aigc/multimodal-generation/generation';
 const DEFAULT_ORIGIN = 'https://dashscope.aliyuncs.com';
@@ -20,7 +20,7 @@ const DEFAULT_STT_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 const DEFAULT_TTS_MODEL = 'qwen3-tts-flash';
 const DEFAULT_STT_MODEL = 'qwen3.5-omni-flash';
 const REQUEST_TIMEOUT_MS = 120_000;
-const MAX_AUDIO_DOWNLOAD_BYTES = 32 * 1024 * 1024;
+const MAX_AUDIO_DOWNLOAD_BYTES = MAX_SPEECH_AUDIO_BYTES;
 const TRANSCRIBE_INSTRUCTION = '请把用户消息中的音频转写为文字，只输出转写文本，不要回答问题。';
 
 /** Fetch with network failures wrapped in a provider-labelled message. */
@@ -35,8 +35,11 @@ async function fetchChecked(url, init, label) {
 async function readJson(response, what) {
   // Only non-OK bodies tolerate a parse failure (plain-text error pages); a
   // successful response that is not JSON is a provider error, not an empty one.
+  // Non-OK bodies are read through a bounded slice: a misbehaving gateway must
+  // not be buffered whole into memory just to build an error message.
   if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
+    const raw = (await response.text()).slice(0, 4096);
+    const data = JSON.parse(raw || '{}');
     throw new Error(data?.message || data?.error?.message || `${what} failed with HTTP ${response.status}`);
   }
   try {
@@ -46,9 +49,21 @@ async function readJson(response, what) {
   }
 }
 
-/** `baseURL` overrides the DashScope origin (e.g. an international endpoint). */
+/**
+ * `baseURL` overrides the DashScope origin (e.g. an international endpoint).
+ * The TTS endpoint hangs off the origin, never off a compatible-mode path, so
+ * one setting serves both directions: `https://host/compatible-mode/v1` and
+ * `https://host` both reach `https://host/api/v1/services/…/generation`.
+ * Bailian is a cloud-only vendor — plain http would leak the bearer key, so
+ * the scheme is enforced here (the MiMo escape hatch stays http-allowing).
+ */
 function ttsUrl(baseURL) {
-  return `${assertHttpUrl(baseURL ?? DEFAULT_ORIGIN, 'Bailian base URL')}${TTS_PATH}`;
+  const normalized = assertHttpUrl(baseURL ?? DEFAULT_ORIGIN, 'Bailian base URL');
+  const parsed = new URL(normalized);
+  if (parsed.protocol !== 'https:') {
+    throw new Error('Bailian requires an https base URL (plain http would leak the API key).');
+  }
+  return `${parsed.origin}${TTS_PATH}`;
 }
 
 async function downloadAudio(url) {
@@ -96,10 +111,15 @@ async function downloadAudio(url) {
     await reader.cancel().catch(() => {});
   }
   const buffer = Buffer.concat(chunks);
-  // Only audio content types are served to the client; anything else is
-  // treated as a mislabeled WAV (the API is expected to return audio/wav).
-  const served = response.headers.get('content-type') ?? '';
-  const contentType = /^audio\//i.test(served.trim()) ? served.trim() : 'audio/wav';
+  // Only audio content types are served to the client. A textual body is an
+  // error page (expired signature, gateway failure) — passing it off as WAV
+  // would stream silence back as HTTP 200 — so textual types throw; an absent
+  // or binary type falls back to the API's documented audio/wav.
+  const served = (response.headers.get('content-type') ?? '').trim();
+  if (/^(text\/|application\/(json|xml|javascript)|image\/)/i.test(served)) {
+    throw new Error(`Bailian TTS audio download returned a non-audio body (${served || 'unknown content type'}).`);
+  }
+  const contentType = /^audio\//i.test(served) ? served : 'audio/wav';
   return { buffer, contentType };
 }
 

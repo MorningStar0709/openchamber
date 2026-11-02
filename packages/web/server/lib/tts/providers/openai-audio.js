@@ -23,7 +23,10 @@ export const openaiAudioProvider = {
     const opts = options ?? {};
     // 'nova' is the historical route default; routes pass no voice for the
     // default provider, so the effective default stays exactly as before.
-    return ttsService.generateSpeechStream({ ...opts, voice: opts.voice ?? 'nova' });
+    // Blank strings (a cleared voice field) fall back too — `??` alone would
+    // forward '' and have OpenAI reject the request.
+    const voice = typeof opts.voice === 'string' && opts.voice.trim() ? opts.voice : 'nova';
+    return ttsService.generateSpeechStream({ ...opts, voice });
   },
 
   async transcribe(options = {}) {

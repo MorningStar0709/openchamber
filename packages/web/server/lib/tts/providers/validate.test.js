@@ -63,3 +63,20 @@ describe('requireSpeechCredentials (delta 3)', () => {
     expect(requireSpeechCredentials('  sk-key  ', 'Mimo')).toBe('sk-key');
   });
 });
+
+describe('audioBufferFromBase64 (delta 4)', () => {
+  it('accepts CRLF-wrapped base64 within the decoded ceiling', () => {
+    const wrapped = 'UklG\nRg==';
+    expect(audioBufferFromBase64(wrapped, 'Mimo TTS').length).toBeGreaterThan(0);
+  });
+  it('reports a non-string payload as malformed, not oversized', () => {
+    expect(() => audioBufferFromBase64(undefined, 'Mimo TTS')).toThrow(/malformed/);
+  });
+});
+
+describe('audioFormatOf (delta 4)', () => {
+  it('maps well-known MIME aliases to wire-format tokens', () => {
+    expect(audioFormatOf('audio/mpeg')).toBe('mp3');
+    expect(audioFormatOf('audio/x-wav')).toBe('wav');
+  });
+});

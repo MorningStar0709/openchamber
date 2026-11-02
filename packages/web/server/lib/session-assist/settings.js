@@ -31,19 +31,35 @@ function readSettings() {
   }
 }
 
-// Warn once per distinct rejected value: a repeat of the same invalid value
-// stays quiet, but a *new* misconfiguration must surface in the log.
-let lastWarnedInvalidQuietMs;
+// Warn once per distinct rejected value, keyed by a stable serialization:
+// `readMergedSettingsSync` returns fresh objects for non-primitive values, so
+// an identity check would re-warn on every turn. The latch resets after a
+// valid read so a re-introduced misconfiguration surfaces again.
+const warnedInvalidQuietMsKeys = new Set();
+
+function warnKeyOf(value) {
+  try {
+    return `${typeof value}:${JSON.stringify(value)}`;
+  } catch {
+    return String(value);
+  }
+}
 
 /** Read at every turn end so a settings change applies without a restart. */
 export function readSessionAssistQuietMs() {
   const settings = readSettings();
   if (!settings) return undefined;
   const value = settings.sessionAssistIdleQuietMs;
-  if (isSessionAssistIdleQuietMs(value)) return value;
-  if (value !== undefined && value !== lastWarnedInvalidQuietMs) {
-    lastWarnedInvalidQuietMs = value;
-    console.warn(`Ignoring invalid sessionAssistIdleQuietMs value (expected an integer between ${MIN_IDLE_QUIET_MS} and ${MAX_IDLE_QUIET_MS}).`);
+  if (isSessionAssistIdleQuietMs(value)) {
+    warnedInvalidQuietMsKeys.clear();
+    return value;
+  }
+  if (value !== undefined) {
+    const key = warnKeyOf(value);
+    if (!warnedInvalidQuietMsKeys.has(key)) {
+      warnedInvalidQuietMsKeys.add(key);
+      console.warn(`Ignoring invalid sessionAssistIdleQuietMs value (expected an integer between ${MIN_IDLE_QUIET_MS} and ${MAX_IDLE_QUIET_MS}).`);
+    }
   }
   return undefined;
 }

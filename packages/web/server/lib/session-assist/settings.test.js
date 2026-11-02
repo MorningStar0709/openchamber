@@ -143,6 +143,27 @@ describe('readSessionAssistTargets (delta 2)', () => {
   });
 });
 
+
+  it('resets the warn latch after a valid value, so a re-introduced misconfiguration warns again', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'oc-assist-quiet-reset-'));
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ sessionAssistIdleQuietMs: 500 }));
+    vi.stubEnv('OPENCHAMBER_DATA_DIR', dir);
+    vi.resetModules();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { readSessionAssistQuietMs: read } = await import('./settings.js');
+    read();
+    read();
+    expect(warn).toHaveBeenCalledTimes(1);
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ sessionAssistIdleQuietMs: 60000 }));
+    read();
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ sessionAssistIdleQuietMs: 500 }));
+    read();
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+  });
+
 describe('bounds parity with the UI constants (delta 3)', () => {
   it('server and ui quiet-window bounds agree', async () => {
     const ui = await import('../../../../ui/src/lib/sessionAssistQuietMs');
